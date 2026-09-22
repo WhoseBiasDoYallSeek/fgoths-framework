@@ -1,0 +1,557 @@
+// Copyright (c) 2026, srars-tech
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+package cli
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+	"text/template"
+)
+
+type crudField struct {
+	Name      string
+	Exported  string
+	GoType    string
+	SQLType   string
+	TestValue string
+}
+
+type crudData struct {
+	ProjectName   string
+	Entity        string
+	EntityLower   string
+	Table         string
+	Fields        []crudField
+	Columns       string
+	Placeholders  string
+	ArgumentList  string
+	ScanArguments string
+}
+
+var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
+
+// RunGenerateCRUD creates a SQLite-backed CRUD vertical slice inside an MVC
+// webapp project: a model in models/, a JSON handler in handlers/, a
+// repository in internal/database/, a migration and generated tests. It
+// refuses to overwrite existing code.
+func RunGenerateCRUD(args []string) {
+	data, err := parseCRUDArgs(args)
+	if err != nil {
+		fmt.Printf("❌ %v\n", err)
+		return
+	}
+	if err := requireMVCProject(); err != nil {
+		fmt.Printf("❌ %v\n", err)
+		return
+	}
+	projectName, err := currentModuleName()
+	if err != nil {
+		fmt.Printf("❌ %v\n", err)
+		return
+	}
+	data.ProjectName = projectName
+	if err := writeCRUDFiles(data); err != nil {
+		fmt.Printf("❌ Could not generate CRUD: %v\n", err)
+		return
+	}
+
+	fmt.Printf("✅ CRUD %s generated (model, handler, repository, migration + tests)\n", data.Entity)
+	fmt.Printf("   GET, POST /api/%s\n", data.Table)
+	fmt.Println("   Run `go test ./...` to validate the generated project.")
+}
+
+func parseCRUDArgs(args []string) (crudData, error) {
+	if len(args) < 2 {
+		return crudData{}, fmt.Errorf("usage: fgoths generate crud Entity field:type [field:type...]")
+	}
+	entity := args[0]
+	if !regexp.MustCompile(`^[A-Z][A-Za-z0-9]*$`).MatchString(entity) {
+		return crudData{}, fmt.Errorf("entity must be a PascalCase identifier")
+	}
+
+	data := crudData{Entity: entity, EntityLower: lowerFirst(entity), Table: pluralize(toSnake(entity))}
+	seen := make(map[string]bool)
+	for _, argument := range args[1:] {
+		parts := strings.SplitN(argument, ":", 2)
+		if len(parts) != 2 || !identifierPattern.MatchString(parts[0]) {
+			return crudData{}, fmt.Errorf("invalid field %q; use lower_snake:type", argument)
+		}
+		if seen[parts[0]] {
+			return crudData{}, fmt.Errorf("field %q is repeated", parts[0])
+		}
+		seen[parts[0]] = true
+
+		goType, sqlType, ok := supportedCRUDType(parts[1])
+		if !ok {
+			return crudData{}, fmt.Errorf("unsupported type %q; use string, bool, int, int64 or float64", parts[1])
+		}
+		data.Fields = append(data.Fields, crudField{Name: parts[0], Exported: exportName(parts[0]), GoType: goType, SQLType: sqlType, TestValue: testValueFor(goType)})
+	}
+
+	columns := make([]string, 0, len(data.Fields))
+	placeholders := make([]string, 0, len(data.Fields))
+	arguments := make([]string, 0, len(data.Fields))
+	scans := []string{"&item.ID"}
+	for index, field := range data.Fields {
+		columns = append(columns, field.Name)
+		placeholders = append(placeholders, fmt.Sprintf("?%d", index+1))
+		arguments = append(arguments, "item."+field.Exported)
+		scans = append(scans, "&item."+field.Exported)
+	}
+	data.Columns = strings.Join(columns, ", ")
+	data.Placeholders = strings.Join(placeholders, ", ")
+	data.ArgumentList = strings.Join(arguments, ", ")
+	data.ScanArguments = strings.Join(scans, ", ")
+	return data, nil
+}
+
+func supportedCRUDType(value string) (string, string, bool) {
+	switch value {
+	case "string":
+		return "string", "TEXT", true
+	case "bool":
+		return "bool", "INTEGER", true
+	case "int":
+		return "int", "INTEGER", true
+	case "int64":
+		return "int64", "INTEGER", true
+	case "float64":
+		return "float64", "REAL", true
+	default:
+		return "", "", false
+	}
+}
+
+// testValueFor returns a Go literal used to populate the generated repository
+// test fixture for the given field type.
+func testValueFor(goType string) string {
+	switch goType {
+	case "string":
+		return `"test"`
+	case "bool":
+		return "true"
+	case "int", "int64":
+		return "1"
+	case "float64":
+		return "1.5"
+	default:
+		return ""
+	}
+}
+
+// requireMVCProject verifies the current directory is an MVC webapp with
+// SQLite — the only layout `generate crud` supports.
+func requireMVCProject() error {
+	goMod, err := os.ReadFile("go.mod")
+	if err != nil {
+		return fmt.Errorf("go.mod not found; run this inside a project generated by `fgoths init`")
+	}
+	if !bytes.Contains(goMod, []byte("modernc.org/sqlite")) {
+		return fmt.Errorf("CRUD generation requires SQLite; regenerate with `fgoths init --db=sqlite` or `--preset=webapp`")
+	}
+	if _, err := os.Stat("models"); err != nil {
+		return fmt.Errorf("CRUD generation requires an MVC webapp; regenerate with `fgoths init --preset=webapp`")
+	}
+	return nil
+}
+
+func currentModuleName() (string, error) {
+	content, err := os.ReadFile("go.mod")
+	if err != nil {
+		return "", err
+	}
+	for _, line := range strings.Split(string(content), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 && fields[0] == "module" {
+			return fields[1], nil
+		}
+	}
+	return "", fmt.Errorf("could not determine module name from go.mod")
+}
+
+// writeCRUDFiles renders and writes the entity files plus regenerates
+// handlers/routes_gen.go, the single source of truth for CRUD route
+// registration (so repeated runs never patch main.go text).
+func writeCRUDFiles(data crudData) error {
+	handlerPath := filepath.Join("handlers", toSnake(data.Entity)+"_handler.go")
+	files := map[string]string{
+		filepath.Join("models", toSnake(data.Entity)+".go"):                               crudModelTemplate,
+		filepath.Join("internal", "database", toSnake(data.Entity)+"_repository.go"):      crudRepositoryTemplate,
+		filepath.Join("internal", "database", toSnake(data.Entity)+"_repository_test.go"): crudRepositoryTestTemplate,
+		filepath.Join("migrations", "002_create_"+data.Table+".sql"):                      crudMigrationTemplate,
+	}
+
+	for path := range files {
+		if _, err := os.Stat(path); err == nil {
+			return fmt.Errorf("refusing to overwrite existing file %s", path)
+		} else if !os.IsNotExist(err) {
+			return err
+		}
+	}
+	if _, err := os.Stat(handlerPath); err == nil {
+		return fmt.Errorf("refusing to overwrite existing file %s", handlerPath)
+	}
+
+	for _, dir := range []string{"handlers", "models", "migrations", filepath.Join("internal", "database")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return err
+		}
+	}
+	handlerTestPath := handlerPath[:len(handlerPath)-len(".go")] + "_test.go"
+	for path, source := range map[string]string{handlerPath: crudHandlerTemplate, handlerTestPath: crudHandlerTestTemplate} {
+		content, err := renderCRUDTemplate(source, data)
+		if err != nil {
+			return fmt.Errorf("render %s: %w", path, err)
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+	}
+
+	for path, source := range files {
+		content, err := renderCRUDTemplate(source, data)
+		if err != nil {
+			return fmt.Errorf("render %s: %w", path, err)
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			return fmt.Errorf("write %s: %w", path, err)
+		}
+	}
+	return writeCRUDRouteRegistry()
+}
+
+// writeCRUDRouteRegistry regenerates handlers/routes_gen.go listing every
+// entity generated so far by scanning the handlers directory. Being fully
+// regenerated (not patched) makes repeated `generate crud` runs idempotent.
+func writeCRUDRouteRegistry() error {
+	entries, err := os.ReadDir("handlers")
+	if err != nil {
+		return fmt.Errorf("scan handlers: %w", err)
+	}
+	var entities []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || !strings.HasSuffix(name, "_handler.go") || strings.HasSuffix(name, "_handler_test.go") {
+			continue
+		}
+		if name == "handlers.go" || name == "routes_gen.go" {
+			continue
+		}
+		entities = append(entities, exportName(strings.TrimSuffix(name, "_handler.go")))
+	}
+	sort.Strings(entities)
+
+	tmplSrc := `// Code generated by fgoths generate crud; DO NOT EDIT.
+package handlers
+
+import (
+	"database/sql"
+	"net/http"
+)
+
+// RegisterCRUDRoutes mounts every entity generated with ` + "`fgoths generate crud`" + `.
+func RegisterCRUDRoutes(mux *http.ServeMux, db *sql.DB) {
+	if db == nil {
+		return
+	}
+{{range .}}	register{{.}}Routes(mux, db)
+{{end}}}
+`
+	var output bytes.Buffer
+	tmpl, err := template.New("routes").Parse(tmplSrc)
+	if err != nil {
+		return err
+	}
+	if err := tmpl.Execute(&output, entities); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join("handlers", "routes_gen.go"), output.Bytes(), 0o644)
+}
+
+func renderCRUDTemplate(source string, data crudData) ([]byte, error) {
+	tmpl, err := template.New("crud").Parse(source)
+	if err != nil {
+		return nil, err
+	}
+	var output bytes.Buffer
+	if err := tmpl.Execute(&output, data); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
+func toSnake(value string) string {
+	var out []rune
+	for i, r := range value {
+		if r >= 'A' && r <= 'Z' {
+			if i > 0 {
+				out = append(out, '_')
+			}
+			out = append(out, r+'a'-'A')
+			continue
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
+func pluralize(value string) string  { return value + "s" }
+func lowerFirst(value string) string { return strings.ToLower(value[:1]) + value[1:] }
+
+func exportName(value string) string {
+	parts := strings.Split(value, "_")
+	var out strings.Builder
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		out.WriteString(strings.ToUpper(part[:1]) + part[1:])
+	}
+	return out.String()
+}
+
+const crudModelTemplate = `package models
+
+import "time"
+
+// {{.Entity}} is a persisted entity managed by the {{.Table}} CRUD slice.
+type {{.Entity}} struct {
+	ID uint64 ` + "`" + `json:"id"` + "`" + `
+{{range .Fields}}	{{.Exported}} {{.GoType}} ` + "`" + `json:"{{.Name}}"` + "`" + `
+{{end}}	CreatedAt time.Time ` + "`" + `json:"created_at"` + "`" + `
+}
+`
+
+const crudRepositoryTemplate = `package database
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"time"
+
+	"{{.ProjectName}}/models"
+)
+
+// {{.Entity}}Repository persists {{.EntityLower}} rows in SQLite.
+type {{.Entity}}Repository struct{ db *sql.DB }
+
+func New{{.Entity}}Repository(db *sql.DB) {{.Entity}}Repository { return {{.Entity}}Repository{db: db} }
+
+func (r {{.Entity}}Repository) Create(ctx context.Context, item models.{{.Entity}}) (models.{{.Entity}}, error) {
+	res, err := r.db.ExecContext(ctx, "INSERT INTO {{.Table}} ({{.Columns}}) VALUES ({{.Placeholders}})", {{.ArgumentList}})
+	if err != nil {
+		return models.{{.Entity}}{}, fmt.Errorf("insert {{.EntityLower}}: %w", err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return models.{{.Entity}}{}, fmt.Errorf("{{.EntityLower}} id: %w", err)
+	}
+	item.ID = uint64(id)
+	return item, nil
+}
+
+func (r {{.Entity}}Repository) List(ctx context.Context) ([]models.{{.Entity}}, error) {
+	rows, err := r.db.QueryContext(ctx, "SELECT id, {{.Columns}}, created_at FROM {{.Table}} ORDER BY id")
+	if err != nil {
+		return nil, fmt.Errorf("list {{.EntityLower}}s: %w", err)
+	}
+	defer rows.Close()
+	items := make([]models.{{.Entity}}, 0)
+	for rows.Next() {
+		var item models.{{.Entity}}
+		var createdAt string
+		if err := rows.Scan({{.ScanArguments}}, &createdAt); err != nil {
+			return nil, fmt.Errorf("scan {{.EntityLower}}: %w", err)
+		}
+		if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err == nil {
+			item.CreatedAt = t
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+`
+
+const crudHandlerTemplate = `package handlers
+
+import (
+	"database/sql"
+	"encoding/json"
+	"net/http"
+
+	"{{.ProjectName}}/internal/database"
+	"{{.ProjectName}}/models"
+)
+
+func write{{.Entity}}JSON(w http.ResponseWriter, status int, body any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(body)
+}
+
+// register{{.Entity}}Routes mounts the JSON API for {{.Table}}.
+func register{{.Entity}}Routes(mux *http.ServeMux, db *sql.DB) {
+	repo := database.New{{.Entity}}Repository(db)
+	mux.HandleFunc("GET /api/{{.Table}}", func(w http.ResponseWriter, r *http.Request) {
+		items, err := repo.List(r.Context())
+		if err != nil {
+			write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		write{{.Entity}}JSON(w, http.StatusOK, items)
+	})
+	mux.HandleFunc("POST /api/{{.Table}}", func(w http.ResponseWriter, r *http.Request) {
+		var item models.{{.Entity}}
+		if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
+			write{{.Entity}}JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+			return
+		}
+		created, err := repo.Create(r.Context(), item)
+		if err != nil {
+			write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			return
+		}
+		write{{.Entity}}JSON(w, http.StatusCreated, created)
+	})
+}
+`
+
+const crudMigrationTemplate = `CREATE TABLE IF NOT EXISTS {{.Table}} (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+{{range .Fields}}    {{.Name}} {{.SQLType}} NOT NULL,
+{{end}}    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+`
+
+const crudRepositoryTestTemplate = `package database
+
+import (
+	"context"
+	"database/sql"
+	"testing"
+
+	"{{.ProjectName}}/models"
+
+	_ "modernc.org/sqlite"
+)
+
+func open{{.Entity}}TestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open in-memory sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(` + "`CREATE TABLE {{.Table}} (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n{{range .Fields}}\t\t{{.Name}} {{.SQLType}} NOT NULL,\n{{end}}\t\tcreated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n\t)`" + `); err != nil {
+		t.Fatalf("create {{.Table}} table: %v", err)
+	}
+	return db
+}
+
+func TestNew{{.Entity}}RepositoryCreateAndList(t *testing.T) {
+	db := open{{.Entity}}TestDB(t)
+	repo := New{{.Entity}}Repository(db)
+	ctx := context.Background()
+
+	item := models.{{.Entity}}{
+{{range .Fields}}		{{.Exported}}: {{.TestValue}},
+{{end}}	}
+	created, err := repo.Create(ctx, item)
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	if created.ID == 0 {
+		t.Fatal("expected Create to assign a non-zero ID")
+	}
+
+	items, err := repo.List(ctx)
+	if err != nil {
+		t.Fatalf("List failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 {{.EntityLower}}, got %d", len(items))
+	}
+	if items[0].ID != created.ID {
+		t.Fatalf("expected listed {{.EntityLower}} ID %d, got %d", created.ID, items[0].ID)
+	}
+}
+`
+
+const crudHandlerTestTemplate = `package handlers
+
+import (
+	"bytes"
+	"database/sql"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	_ "modernc.org/sqlite"
+)
+
+func open{{.Entity}}HandlerTestDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open in-memory sqlite: %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if _, err := db.Exec(` + "`CREATE TABLE {{.Table}} (\n\t\tid INTEGER PRIMARY KEY AUTOINCREMENT,\n{{range .Fields}}\t\t{{.Name}} {{.SQLType}} NOT NULL,\n{{end}}\t\tcreated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n\t)`" + `); err != nil {
+		t.Fatalf("create {{.Table}} table: %v", err)
+	}
+	return db
+}
+
+func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
+	db := open{{.Entity}}HandlerTestDB(t)
+	mux := http.NewServeMux()
+	register{{.Entity}}Routes(mux, db)
+
+	body, err := json.Marshal(map[string]any{
+{{range .Fields}}		"{{.Name}}": {{.TestValue}},
+{{end}}	})
+	if err != nil {
+		t.Fatalf("marshal request body: %v", err)
+	}
+	postReq := httptest.NewRequest(http.MethodPost, "/api/{{.Table}}", bytes.NewReader(body))
+	postRes := httptest.NewRecorder()
+	mux.ServeHTTP(postRes, postReq)
+	if postRes.Code != http.StatusCreated {
+		t.Fatalf("POST /api/{{.Table}} = %d, want %d; body=%s", postRes.Code, http.StatusCreated, postRes.Body.String())
+	}
+
+	getReq := httptest.NewRequest(http.MethodGet, "/api/{{.Table}}", nil)
+	getRes := httptest.NewRecorder()
+	mux.ServeHTTP(getRes, getReq)
+	if getRes.Code != http.StatusOK {
+		t.Fatalf("GET /api/{{.Table}} = %d, want %d; body=%s", getRes.Code, http.StatusOK, getRes.Body.String())
+	}
+
+	var items []map[string]any
+	if err := json.Unmarshal(getRes.Body.Bytes(), &items); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 {{.EntityLower}}, got %d", len(items))
+	}
+}
+`

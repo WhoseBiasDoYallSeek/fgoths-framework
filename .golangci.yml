@@ -1,0 +1,85 @@
+# FGOTHS framework lint configuration.
+# Deliberately conservative: the codebase is stdlib-first and idiomatic;
+# the linter's job is to catch real defects, not to enforce style gofmt
+# already covers (gofmt runs as a separate CI step).
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # Correctness / bug detection.
+    - govet
+    - staticcheck
+    - errcheck
+    - copyloopvar
+    - ineffassign
+    # Suspicious constructs.
+    - gosec
+    - predeclared
+    - unconvert
+    - unused
+  settings:
+    errcheck:
+      # Ignored: json.NewEncoder(w).Encode(...) and io.WriteString on
+      # best-effort response writes — errors surface at the transport level.
+      exclude-functions:
+        - (io.Writer).Write
+        - (*bytes.Buffer).WriteString
+        - (*strings.Builder).WriteString
+    gosec:
+      excludes:
+        # Generated projects bind on :8080 by design; benchmark servers
+        # intentionally listen on 0.0.0.0 in containers.
+        - G104
+  exclusions:
+    rules:
+      # Test files: unchecked test helpers (Close, Setenv, io.Copy) are fine;
+      # t.Setenv and anonymous-struct context keys in fixtures too.
+      - path: _test\.go
+        linters:
+          - gosec
+          - errcheck
+          - staticcheck
+      # Benchmarks deliberately ignore errors for throughput measurement.
+      - path: benchmarks/
+        linters:
+          - errcheck
+          - gosec
+      # CLI/generator file & subprocess operations take user-controlled paths
+      # by design (the user runs the CLI on their own machine); generated
+      # template files are world-readable on purpose (0644/0755).
+      - path: internal/(cli|generator)/
+        linters:
+          - gosec
+      # The dev/HMR server binds without ReadHeaderTimeout intentionally
+      # (long-lived SSE streams), the proxy health probe is SSRF-taint
+      # flagged because the URL comes from registry config (the operator's
+      # own declared upstream), and weak rand is used for weighted upstream
+      # selection — not for anything security-sensitive.
+      - path: pkg/runtime/
+        linters:
+          - gosec
+      # G706: log injection taint on request logging in the demo — the
+      # demo logs are for local observation only.
+      - path: examples/
+        linters:
+          - gosec
+      # SA4023: sqliteStores has two build-tag variants (sqlite / !sqlite);
+      # staticcheck sees only one at a time and mis-reads the err check.
+      # SA1019: ReverseProxy.Director is deprecated in favor of Rewrite, but
+      # Rewrite cannot set req.URL host the way the failover path needs.
+      # QF1008: style-level embedded selector.
+      - path: pkg/runtime/
+        linters:
+          - staticcheck
+      - path: internal/cli/controlplane\.go
+        linters:
+          - staticcheck
+
+formatters:
+  default: none
+  enable:
+    - gofmt

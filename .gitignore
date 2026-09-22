@@ -1,0 +1,27 @@
+# Build artifacts
+bin/
+dist/
+/fgoths
+
+# Test and scratch projects generated during development
+/test-*/
+scratch/
+*.out
+
+# Compiled benchmark binaries
+benchmarks/fgoths/benchmark-fgoths
+
+# Archived documentation
+docs/archive/
+
+# Control plane local state
+controlplane-ledger*.json
+*.db
+*.db-shm
+*.db-wal
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store

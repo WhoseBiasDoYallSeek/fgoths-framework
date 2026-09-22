@@ -1,0 +1,55 @@
+name: Framework CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ["1.26", "stable"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
+      - name: Vet framework
+        run: go vet ./...
+      - name: Test framework
+        run: go test -race -cover ./...
+      - name: Test SQLite build
+        run: go test -race -tags sqlite ./...
+      - name: Sync check (runtime templates)
+        run: go run ./cmd/fgoths sync-templates --check
+      - name: Lint
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: latest
+
+  nested-modules:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ["1.26", "stable"]
+        module: ["benchmarks/comparison", "benchmarks/fgoths"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+          cache: true
+      - name: Build ${{ matrix.module }}
+        working-directory: ${{ matrix.module }}
+        run: go build ./...
+      - name: Vet ${{ matrix.module }}
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
