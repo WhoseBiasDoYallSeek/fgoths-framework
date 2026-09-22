@@ -89,10 +89,3 @@ upgrade churn — not dispatch speed.
 | Footprint | ~8.8 MB static, 0 CGO, scratch images | Larger; more deps to audit | Small, but you build the ops layer |
 | Best for | Regulated internal services, minimal audit surface | Teams standardizing on one service framework | Teams that want zero framework lock-in |
 
-## Historical comparison
-
-The original Node.js-focused comparison (supply-chain framing, ApacheBench
-baselines) was removed with the docs archive. Its conclusion remains
-directionally true — a Go static binary is easier to audit and deploy than a
-Node.js dependency tree — but Node.js is not the competitive set for a Go
-framework, so it is no longer the headline comparison.
