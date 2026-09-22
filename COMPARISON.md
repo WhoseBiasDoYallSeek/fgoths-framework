@@ -44,8 +44,7 @@
 | go-zero | ~28.3µs | ~27.4µs |
 | chi | ~28.3µs | ~27.7µs |
 
-All frameworks are within noise of each other. **Any claim that a Go router
-makes your real service meaningfully faster over the network is marketing.**
+All frameworks are within noise of each other.
 Choose on dependency surface, features and operational model.
 
 ## Sustained load (vegeta, real TCP, FGOTHS runtime router vs go-zero rest.Server)
