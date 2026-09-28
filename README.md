@@ -30,7 +30,7 @@ architecture supports compliance and audit workflows.)*
 ```
 go-zero rest:   280 non-stdlib packages
   gin:           90 non-stdlib packages
-  FGOTHS:        26 non-stdlib packages
+  FGOTHS:         5 non-stdlib packages (jwt, otel, go-logr)
   stdlib:         0  (baseline)
 ```
 
@@ -74,7 +74,7 @@ ok  	compbench	78.959s
 
 Dependency surface (go list -deps, packages pulled in):
   stdlib net/http (baseline)           187 packages total (0 non-stdlib)
-  FGOTHS pkg/runtime                   235 packages total (26 non-stdlib)
+  FGOTHS pkg/runtime                   223 packages total (5 non-stdlib)
   chi                                  190 packages total (1 non-stdlib)
   gin                                  309 packages total (90 non-stdlib)
   go-zero rest                         507 packages total (280 non-stdlib)
@@ -448,6 +448,7 @@ my-site/
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute |
 | [benchmarks/run-benchmarks.sh](./benchmarks/run-benchmarks.sh) | Reproduce every performance claim |
 | [benchmarks/run-comparison.sh](./benchmarks/run-comparison.sh) | FGOTHS vs go-zero head-to-head over real TCP |
+| [benchmarks/check-perf-regression.sh](./benchmarks/check-perf-regression.sh) | Dispatch allocation regression gate (CI-able) |
 
 ---
 
@@ -477,7 +478,8 @@ the [Code of Conduct](./CODE_OF_CONDUCT.md).
 ```bash
 git checkout -b feature/amazing-feature
 make test            # race detector on
-make benchmark-quick # verify no performance regressions
+make check-templates # template drift guard
+make check-perf      # dispatch allocation gate
 git commit -m "Add amazing feature"
 ```
 

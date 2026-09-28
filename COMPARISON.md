@@ -1,13 +1,21 @@
 # FGOTHS vs the Go ecosystem — measured comparison
 
 > All numbers below were measured locally on this repository (Apple M4,
-> Darwin arm64, 10 cores, Go 1.26). Reproduce everything yourself:
+> Darwin arm64, 10 cores, Go 1.27). Reproduce everything yourself:
 > `./benchmarks/run-benchmarks.sh` and `./benchmarks/run-comparison.sh`.
 >
 > **TL;DR:** in-process route dispatch puts FGOTHS in the same band as gin and
 > the Go 1.22+ stdlib, ahead of chi and go-zero. Over real TCP every framework
 > converges — the network stack dominates. The durable differences are
 > dependency surface, binary footprint and operational model, not ns/op.
+>
+> **v1.1.0 note:** the runtime allocation pass (single context value per
+> request, static-route fast path, pooled recorders, atomic metric counters)
+> changed the dispatch profile. Fresh numbers (2026-09-28, same machine):
+> param **531 ns / 13 allocs**, static **365 ns / 10 allocs** — static
+> dispatch is now the fastest of the group, and param allocations beat chi
+> (14) and go-zero (15). The tables below predate the pass and are kept for
+> the honest before/after record.
 
 ## Route dispatch (in-process: routing + handler, no network)
 
@@ -70,11 +78,11 @@ workload, and FGOTHS's ~2% saturation edge is within run-to-run variance.
 |---|---|---|
 | stdlib `net/http` (baseline) | 187 | **0** |
 | chi | 190 | 1 |
-| **FGOTHS runtime** | 235 | **26** |
+| **FGOTHS runtime** | 223 | **5** |
 | gin | 309 | 90 |
 | go-zero rest (full server) | 507 | 280 |
 
-go-zero pulls **~12x more external packages** than the FGOTHS runtime. That
+go-zero pulls **~56x more external packages** than the FGOTHS runtime. That
 is the real cost of batteries-included: audit surface, CVE exposure and
 upgrade churn — not dispatch speed.
 

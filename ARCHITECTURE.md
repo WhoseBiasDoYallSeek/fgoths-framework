@@ -3,13 +3,15 @@
 ## Overview
 **FGOTHS** (Flatbuffers, Go, Orchestration, Templates, HTMX, SQL/Scratch) is an opinionated, high-performance web framework designed for modular project generation and pure Server-Side Rendering (SSR). The framework combines a generator CLI, architecture presets, and production-oriented generated Go projects into a streamlined DX for mission-critical services.
 
-> Current status (v1.0.0): the generator, presets, and runtime behavior are
+> Current status (v1.1.0): the generator, presets, and runtime behavior are
 > validated end-to-end, with performance claims measured and reproducible
 > (`benchmarks/run-benchmarks.sh`). The embedded runtime is a production-ready
 > native Go layer: routing, proxy with connection pooling, retry, circuit
 > breaker, health-checked failover, governance and control plane APIs. It
 > remains intentionally a lightweight embedded runtime, not a full enterprise
-> ingress platform.
+> ingress platform. v1.1.0 added a runtime allocation pass (dispatch
+> 16→13/13→10 allocs/op), server lifecycle options (`WithListener`,
+> `WithReusePort`, `OnShutdown`), and a dispatch allocation regression gate.
 
 ---
 
@@ -89,10 +91,13 @@ runtime.NewServer(addr)
 server.Use(middleware...)      # register middleware
 server.Handle(method, path, h)   # register routes
 server.WithMetrics()            # optional metrics recording
+server.WithListener(ln)         # optional: serve on a pre-created listener
+                                # (socket activation, systemd handoff, tests)
+server.WithReusePort()          # optional: SO_REUSEPORT bind (dev zero-downtime swap)
 server.WithShutdownTimeout(30s)  # graceful drain timeout
 server.OnShutdown(fn)           # cleanup hooks (close stores, flush buffers)
     ↓
-server.ListenAndServe()        # blocking
+server.ListenAndServe()        # blocking (consumes injected listener if set)
     ↓ (SIGINT/SIGTERM)
 server.Shutdown(ctx)            # drain in-flight, run OnShutdown hooks
 ```

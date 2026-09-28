@@ -13,7 +13,7 @@ Every generated project receives a **verbatim copy** of `pkg/runtime` under its 
 
 ## Rationale
 1. **No version skew:** a generated project never breaks because the framework published a new release. The code you test today is the code the project runs forever, until the owner explicitly re-syncs.
-2. **Zero dependency surface:** generated projects do not add the framework module to `go.mod`. The runtime's 26 non-stdlib packages are the *only* external surface, and only when features are selected.
+2. **Zero dependency surface:** generated projects do not add the framework module to `go.mod`. The runtime's 5 non-stdlib packages (jwt, otel, go-logr — only when features are selected) are the *only* external surface.
 3. **Auditability:** teams in regulated industries can read, diff and pin the exact runtime code shipped in their binary without resolving a module graph.
 4. **Single test suite:** the framework's `go test -race -cover ./...` validates the same bytes that land in generated projects — there is no "tested here, runs differently there" gap.
 

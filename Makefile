@@ -12,7 +12,7 @@ LDFLAGS = -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Versio
 print-ldflags:
 	@echo "$(LDFLAGS)"
 
-.PHONY: build test cover benchmark version check-templates print-ldflags clean
+.PHONY: build test cover benchmark benchmark-quick version check-templates check-perf print-ldflags clean
 
 # Compile the CLI locally with version metadata stamped in
 build:
@@ -40,6 +40,10 @@ benchmark:
 # Quick benchmark pass (shorter durations)
 benchmark-quick:
 	./benchmarks/run-benchmarks.sh --quick
+
+# Dispatch allocation regression gate (fails on alloc increase vs baseline)
+check-perf:
+	./benchmarks/check-perf-regression.sh
 
 # Verify runtime templates are in sync with pkg/runtime
 check-templates:

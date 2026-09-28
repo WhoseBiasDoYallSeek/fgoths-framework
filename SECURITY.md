@@ -7,7 +7,8 @@ applied to the latest `main` branch only.
 
 | Version | Supported |
 |---|---|
-| 1.0.0 (main) | ✅ |
+| 1.1.0 (main) | ✅ |
+| 1.0.0 | ✅ |
 | < 1.0.0 | ❌ |
 
 ## Reporting a Vulnerability
