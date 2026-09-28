@@ -131,6 +131,9 @@ func TestEnsureToolFlatcMissingReturnsInstallHint(t *testing.T) {
 }
 
 func TestRunSucceedsAndFails(t *testing.T) {
+	// Pin PATH to a sane system value: sibling tests stub PATH/HOME to
+	// exercise toolchain fallbacks; run() must not depend on that state.
+	t.Setenv("PATH", "/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin")
 	if err := run("go", "version"); err != nil {
 		t.Fatalf("expected running `go version` to succeed: %v", err)
 	}

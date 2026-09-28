@@ -325,9 +325,15 @@ func isIgnoredWatchPath(path string) bool {
 	return false
 }
 
+// processStdout holds the original process stdout, captured at package init
+// (package vars evaluate before any test swaps os.Stdout via captureStdout).
+// Subprocesses spawned by run() must write to the real stdout, or they
+// inherit a closed test pipe and die with a broken pipe.
+var processStdout = os.Stdout
+
 func run(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	cmd.Stdout = os.Stdout
+	cmd.Stdout = processStdout
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }

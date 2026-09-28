@@ -246,62 +246,43 @@ func TestEnsureToolResolvesTemplFromPath(t *testing.T) {
 
 // TestRunGenerateOnceErrorPaths drives runGenerateOnce in a directory with a
 // .templ file but no usable toolchain, covering both osExit branches
-// (ensureTool failure and runTempl failure) without touching the real
-// toolchain. The go-install fallback genuinely runs (populating a scratch
-// modcache), so caches live in a session-scoped dir that tolerates Go's
-// read-only modcache semantics instead of t.TempDir (whose RemoveAll fails).
+// (ensureTool failure and runTempl failure). The go toolchain is stubbed with
+// a fake `go` binary so the fallback branches are exercised deterministically
+// and fast — running the real `go install` would take minutes on a cold
+// modcache and depend on network access, which no unit test should.
 func TestRunGenerateOnceErrorPaths(t *testing.T) {
 	if testing.Short() {
-		t.Skip("runs the real go toolchain; skipped in short mode")
+		t.Skip("spawns fake toolchain subprocesses; skipped in short mode")
 	}
-	scratch := filepath.Join(os.TempDir(), "fgoths-gen-once-test")
-	// The go toolchain marks its modcache read-only; os.RemoveAll chokes on
-	// it, so chmod the tree writable before removal (best-effort: a leftover
-	// scratch dir on failure is harmless).
-	t.Cleanup(func() {
-		_ = filepath.Walk(scratch, func(path string, info os.FileInfo, err error) error {
-			if err != nil {
-				return nil
-			}
-			return os.Chmod(path, 0o755)
-		})
-		_ = os.RemoveAll(scratch)
-	})
-	emptyDir := filepath.Join(scratch, "project")
-	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+	scratch := t.TempDir()
+	projectDir := filepath.Join(scratch, "project")
+	if err := os.MkdirAll(projectDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(emptyDir, "home.templ"), []byte("package main\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(projectDir, "home.templ"), []byte("package main\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
 
-	withWorkingDir(t, emptyDir, func() {
+	// Fake `go` that fails every invocation, so ensureTool's go-install
+	// fallback fails and runTempl's `go run` fallback fails — both osExit(1)
+	// branches, without touching the network or the real toolchain.
+	binDir := filepath.Join(scratch, "bin")
+	if err := os.MkdirAll(binDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	fakeGo := "#!/bin/sh\nexit 1\n"
+	if err := os.WriteFile(filepath.Join(binDir, "go"), []byte(fakeGo), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	withWorkingDir(t, projectDir, func() {
 		_, restore := stubOSExit(t)
 		defer restore()
-		// Isolate PATH so templ is absent, but keep `go` findable via a
-		// symlink so the go-install fallback branch is exercised.
-		goBin, err := exec.LookPath("go")
-		if err != nil {
-			t.Skip("go not on PATH; cannot exercise go-install fallback")
-		}
-		binDir := filepath.Join(scratch, "bin")
-		if err := os.MkdirAll(binDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.Symlink(goBin, filepath.Join(binDir, "go")); err != nil {
-			t.Fatal(err)
-		}
-		homeDir := filepath.Join(scratch, "home")
-		if err := os.MkdirAll(homeDir, 0o755); err != nil {
-			t.Fatal(err)
-		}
 		t.Setenv("PATH", binDir)
-		t.Setenv("HOME", homeDir)
-		t.Setenv("GOPATH", filepath.Join(homeDir, "gopath"))
-		t.Setenv("GOMODCACHE", filepath.Join(homeDir, "gomodcache"))
-		t.Setenv("GOCACHE", filepath.Join(homeDir, "gocache"))
-		t.Setenv("GOFLAGS", "-mod=mod")
+		t.Setenv("HOME", scratch)
+		t.Setenv("GOPATH", filepath.Join(scratch, "gopath"))
+		t.Setenv("GOMODCACHE", filepath.Join(scratch, "gomodcache"))
+		t.Setenv("GOCACHE", filepath.Join(scratch, "gocache"))
 
 		defer func() {
 			if r := recover(); r != nil {
@@ -310,6 +291,9 @@ func TestRunGenerateOnceErrorPaths(t *testing.T) {
 				}
 			}
 		}()
-		captureStdout(t, func() { runGenerateOnce() })
+		out := captureStdout(t, func() { runGenerateOnce() })
+		if !strings.Contains(out, "templ generate failed") {
+			t.Errorf("expected the templ failure message, got: %q", out)
+		}
 	})
 }
