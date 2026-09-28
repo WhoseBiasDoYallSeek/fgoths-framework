@@ -11,6 +11,20 @@
 make run
 ```
 
+`make run` (and `make dev` / `make build`) handles first-run setup
+automatically: it refreshes `go.sum` (`go mod tidy`) and compiles Templ
+templates before starting. **No manual steps needed** — this is the only
+command you need after `fgoths init`.
+
+If you prefer raw Go commands over the Makefile, run the setup once first:
+
+```bash
+go mod tidy          # populate go.sum
+make generate        # compile .templ views (requires the templ toolchain)
+go build ./...       # now works
+go test ./...
+```
+
 For development with hot reload:
 
 ```bash
