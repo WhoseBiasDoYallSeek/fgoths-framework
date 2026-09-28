@@ -131,6 +131,7 @@ func (s *Server) WithAlertThreshold(threshold float64, callback AlertCallback) *
 			} else if errorRate < alert.threshold {
 				alert.triggered = false
 			}
+			releaseStatusRecorder(recorder)
 		})
 	})
 	return s

@@ -75,7 +75,11 @@ func (p Policy) Check(claims map[string]any) error {
 	return nil
 }
 
-var claimsContextKey = struct{}{}
+// claimsCtxKey is a distinct unexported type so the claims context value
+// cannot collide with other request-scoped keys (tenant, mTLS identity).
+type claimsCtxKey struct{}
+
+var claimsContextKey = claimsCtxKey{}
 
 // ContextClaims returns the validated JWT claims associated with the request.
 func ContextClaims(r *http.Request) map[string]any {

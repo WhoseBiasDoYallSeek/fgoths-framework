@@ -30,7 +30,11 @@ type ClientIdentity struct {
 	Cert       *x509.Certificate
 }
 
-var identityContextKey = struct{}{}
+// identityCtxKey is a distinct unexported type so the mTLS identity cannot
+// collide with other request-scoped keys (JWT claims, tenant).
+type identityCtxKey struct{}
+
+var identityContextKey = identityCtxKey{}
 
 // ContextClientIdentity returns the mTLS client identity validated for this request, if any.
 func ContextClientIdentity(r *http.Request) (*ClientIdentity, bool) {

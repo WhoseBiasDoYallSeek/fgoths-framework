@@ -2,7 +2,7 @@
 
 > **The auditable batteries-included framework for Go microservices**
 >
-> `v1.0.0` · Apache 2.0 · Go 1.26+
+> `v1.1.0` · Apache 2.0 · Go 1.26+
 
 **FGOTHS** (*FOR THE GOTH STACK*) is a modular Go scaffolding toolkit with an--
 embedded production-ready runtime. Pick a project type, architecture, database
@@ -173,6 +173,13 @@ ok      github.com/WhoseBiasDoYallSeek/fgoths-framework/pkg/runtime        1.265
 > **Reproduce every claim yourself:** `make benchmark` (or
 > `./benchmarks/run-benchmarks.sh --quick`). Requires Go 1.26+ and vegeta.
 > Head-to-head vs go-zero over real TCP: `./benchmarks/run-comparison.sh`.
+>
+> **v1.1.0 update:** the dispatch comparison above predates the runtime
+> allocation pass. Fresh numbers on the same machine (in-process dispatch,
+> `cd benchmarks/comparison && go test -bench Dispatch -benchmem`): param
+> routes now **13 allocs/op** (~495 ns) and static routes **10 allocs/op**
+> (~355 ns) — down from 16/13 in the block above. Static dispatch now matches
+> or beats stdlib `http.ServeMux` on both time and allocations.
 
 ### Deployment simplicity
 ```bash
@@ -204,7 +211,7 @@ scp bin/app server:/opt/app && ssh server "systemctl restart app"
 git clone https://github.com/WhoseBiasDoYallSeek/fgoths-framework.git
 cd fgoths-framework
 make build
-./bin/fgoths version   # → 1.0.0
+./bin/fgoths version   # → 1.1.0
 
 # Create your first API (simplest way)
 ./bin/fgoths init --name=user-service --preset=api
@@ -315,7 +322,7 @@ proxy.WithMetrics().WithRetry(2, 150*time.Millisecond).
 
 Retry, circuit breaker, rate limiting, health-checked failover, request
 observers and connection pooling are all in the box. See
-[examples/proxy-demo](./examples/proxy-demo) for a working end-to-end demo.
+[examples/api-demo](./examples/api-demo) for a complete generated project.
 
 ---
 
@@ -381,6 +388,10 @@ FGOTHS_CP_TOKEN=secret ./bin/fgoths controlplane --store=sqlite://cp.db
 - `fgoths build --sbom --scratch` — static binary + SBOM + Dockerfile
 - Safe project names, non-overwriting generation, template drift guard
 - Edge-case hardened: path traversal, CRLF, large bodies, concurrent registration (race-detector clean)
+- Server lifecycle: `WithListener` (socket activation / systemd handoff),
+  `WithReusePort` (zero-downtime dev swap), `WithShutdownTimeout`, `OnShutdown` hooks
+- Request correlation: `WithRequestID` (X-Request-ID / X-Correlation-ID / X-Trace-ID)
+- OpenTelemetry tracing (server spans + proxy hops, W3C TraceContext propagation)
 
 ### Verified in this release
 - API project: `/health`, `/metrics`, `/docs`, `/openapi.yaml` respond correctly
@@ -443,17 +454,17 @@ my-site/
 ## 🔖 Versioning & releases
 
 This project follows [Semantic Versioning](https://semver.org). The current
-release line is **1.0.0**.
+release line is **1.1.0**.
 
 - **Release builds** stamp version metadata at compile time:
   ```bash
-  make build          # VERSION ?= 1.0.0 in the Makefile
+  make build          # VERSION ?= 1.1.0 in the Makefile
   ./bin/fgoths version
   ```
 - **Maintenance updates** only require bumping `VERSION` in the `Makefile`
   (or passing `VERSION=x.y.z make build`) — the CLI reports it via
   `fgoths version`.
-- A release candidate becomes `1.0.0` (GA) after a real-world adoption cycle
+- A release candidate becomes GA after a real-world adoption cycle
   with no blocking issues.
 
 ---

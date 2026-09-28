@@ -77,6 +77,7 @@ func AuditLogger(on func(AuditEvent)) func(http.Handler) http.Handler {
 				UserAgent:  r.UserAgent(),
 			}
 			on(logEvent)
+			releaseStatusRecorder(recorder)
 		})
 	}
 }

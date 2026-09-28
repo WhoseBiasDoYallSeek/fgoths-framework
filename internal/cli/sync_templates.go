@@ -37,9 +37,12 @@ import (
 // projects.
 var runtimeSyncFiles = map[string]string{
 	// Base runtime templates (copied verbatim into every generated project).
-	"server.go":  "base/pkg/runtime/server.go.tpl",
-	"metrics.go": "base/pkg/runtime/metrics.go.tpl",
-	"health.go":  "base/pkg/runtime/health.go.tpl",
+	"router.go":    "base/pkg/runtime/router.go.tpl",
+	"server.go":    "base/pkg/runtime/server.go.tpl",
+	"proxy.go":     "base/pkg/runtime/proxy.go.tpl",
+	"requestid.go": "base/pkg/runtime/requestid.go.tpl",
+	"metrics.go":   "base/pkg/runtime/metrics.go.tpl",
+	"health.go":    "base/pkg/runtime/health.go.tpl",
 
 	// HMR subpackage (copied verbatim into every generated project).
 	"hmr/hmr.go":    "base/pkg/runtime/hmr/hmr.go.tpl",
@@ -53,29 +56,6 @@ var runtimeSyncFiles = map[string]string{
 	"identity.go": "features/mtls/pkg/runtime/identity.go.tpl",
 }
 
-// nestedRuntimeSyncDirs are in-repo modules that carry their own verbatim
-// copy of pkg/runtime (sample projects, test harnesses). They must stay in
-// lockstep with the framework runtime too: a stale copy here drifts
-// silently because the framework test suite never compiles it. server.go
-// additionally requires the reuseport build-tagged files.
-var nestedRuntimeSyncDirs = []struct {
-	dir     string
-	version string // module go directive to keep aligned
-}{}
-
-// nestedRuntimeFiles lists pkg/runtime files mirrored verbatim into each
-// nested module directory above.
-var nestedRuntimeFiles = []string{
-	"server.go",
-	"metrics.go",
-	"health.go",
-	"reuseport_linux.go",
-	"reuseport_other.go",
-	"reuseport_posix.go",
-	"hmr/hmr.go",
-	"hmr/client.go",
-	"hmr/codec.go",
-}
 var (
 	// runtimeSourceDir and templateDestDir are resolved relative to the
 	// repository root so the drift check works from any working directory
@@ -186,45 +166,5 @@ func syncRuntimeTemplates(checkOnly bool) (bool, error) {
 		}
 	}
 
-	// Nested-module runtime copies must be verbatim mirrors of pkg/runtime.
-	// Only runs against the real repository root: unit tests override the
-	// root with a temp dir that models just the template mapping, and the
-	// nested-module invariant is covered by TestRuntimeTemplatesInSync
-	// (which runs unoverridden) and by CI.
-	if runtimeRepoRootOverride == "" {
-		for _, nested := range nestedRuntimeSyncDirs {
-			for _, name := range nestedRuntimeFiles {
-				srcPath := filepath.Join(root, runtimeSourceDir, name)
-				dstPath := filepath.Join(root, nested.dir, runtimeSourceDir, name)
-
-				src, err := osReadFile(srcPath)
-				if err != nil {
-					if osIsNotExist(err) {
-						continue // nested module does not mirror this file
-					}
-					return drifted, fmt.Errorf("read %s: %w", srcPath, err)
-				}
-
-				dst, err := osReadFile(dstPath)
-				if err != nil && !osIsNotExist(err) {
-					return drifted, fmt.Errorf("read %s: %w", dstPath, err)
-				}
-				if osIsNotExist(err) {
-					continue // no local copy to sync; nothing to do
-				}
-
-				if bytes.Equal(src, dst) {
-					continue
-				}
-				drifted = true
-				if checkOnly {
-					continue
-				}
-				if err := osWriteFile(dstPath, src, 0o644); err != nil {
-					return drifted, fmt.Errorf("write %s: %w", dstPath, err)
-				}
-			}
-		}
-	}
 	return drifted, nil
 }

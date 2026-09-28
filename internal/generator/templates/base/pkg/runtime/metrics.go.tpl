@@ -20,6 +20,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,16 +36,20 @@ type RouteHistogram struct {
 	mu      sync.Mutex
 	samples []time.Duration // sliding window, oldest are evicted
 	maxSize int             // capacity cap
-	p50     time.Duration
-	p95     time.Duration
-	P99     time.Duration
+	// percentilesDirty marks that samples changed since the last
+	// Snapshot, deferring the O(n log n) recompute out of Record.
+	percentilesDirty bool
+	p50              time.Duration
+	p95              time.Duration
+	P99              time.Duration
 }
 
 func newRouteHistogram(capacity int) *RouteHistogram {
 	return &RouteHistogram{samples: make([]time.Duration, 0, capacity), maxSize: capacity}
 }
 
-// Record adds a latency sample and recomputes percentiles.
+// Record adds a latency sample. Percentile computation is deferred to
+// Snapshot, keeping Record O(1) amortized — no per-request copy or sort.
 func (h *RouteHistogram) Record(d time.Duration) {
 	if d < 0 {
 		d = 0
@@ -60,7 +65,29 @@ func (h *RouteHistogram) Record(d time.Duration) {
 		}
 		h.samples = h.samples[cut:]
 	}
+	h.percentilesDirty = true
+}
+
+// Snapshot returns the current percentiles, recomputing them from the
+// sample window when new samples were recorded since the last snapshot.
+func (h *RouteHistogram) Snapshot() DurationPercentiles {
+	if h == nil {
+		return DurationPercentiles{}
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.percentilesDirty {
+		h.recomputePercentilesLocked()
+		h.percentilesDirty = false
+	}
+	return DurationPercentiles{P50: h.p50, P95: h.p95, P99: h.P99}
+}
+
+// recomputePercentilesLocked sorts the sample window and derives p50/p95/p99.
+// Callers must hold h.mu.
+func (h *RouteHistogram) recomputePercentilesLocked() {
 	if len(h.samples) == 0 {
+		h.p50, h.p95, h.P99 = 0, 0, 0
 		return
 	}
 	sorted := make([]time.Duration, len(h.samples))
@@ -70,16 +97,6 @@ func (h *RouteHistogram) Record(d time.Duration) {
 	h.p50 = sorted[n*50/100]
 	h.p95 = sorted[n*95/100]
 	h.P99 = sorted[n*99/100]
-}
-
-// Snapshot returns the current percentiles without locking.
-func (h *RouteHistogram) Snapshot() DurationPercentiles {
-	if h == nil {
-		return DurationPercentiles{}
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	return DurationPercentiles{P50: h.p50, P95: h.p95, P99: h.P99}
 }
 
 // MetricsSnapshot contains a point-in-time view of request counters, route
@@ -98,11 +115,14 @@ type MetricsSnapshot struct {
 }
 
 // Metrics collects lightweight runtime telemetry for server and proxy traffic.
+// Hot counters use atomics so Record's read-modify-writes never contend with
+// Snapshot; the mutex guards only the maps and the error ring, keeping its
+// critical section minimal under high request concurrency.
 type Metrics struct {
 	mu               sync.RWMutex
-	totalRequests    int64
-	totalErrors      int64
-	totalLatency     time.Duration
+	totalRequests    atomic.Int64
+	totalErrors      atomic.Int64
+	totalLatency     atomic.Int64 // nanoseconds
 	byMethod         map[string]int64
 	byRoute          map[string]int64
 	byStatus         map[int]int64
@@ -152,15 +172,14 @@ func (m *Metrics) Record(method, route string, status int, elapsed ...time.Durat
 		}
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.totalRequests++
+	m.totalRequests.Add(1)
 	m.byMethod[method]++
 	m.byRoute[route]++
 	m.byStatus[status]++
-	m.totalLatency += duration
+	m.totalLatency.Add(int64(duration))
 	m.byRouteLatency[route] += duration
 	if status >= http.StatusBadRequest {
-		m.totalErrors++
+		m.totalErrors.Add(1)
 	}
 	// Sliding-window counters for alerting: cumulative error rates dilute
 	// spikes over a long-lived process, so alerts watch a bounded window.
@@ -185,14 +204,20 @@ func (m *Metrics) Record(method, route string, status int, elapsed ...time.Durat
 			m.errorWinErrs++
 		}
 	}
-	// Record in histograms for percentile calculation
-	if m.latencyHistogram != nil {
-		m.latencyHistogram.Record(duration)
+	routeHist, ok := m.byRouteHistogram[route]
+	if !ok {
+		routeHist = newRouteHistogram(1000)
+		m.byRouteHistogram[route] = routeHist
 	}
-	if _, ok := m.byRouteHistogram[route]; !ok {
-		m.byRouteHistogram[route] = newRouteHistogram(1000)
+	globalHist := m.latencyHistogram
+	m.mu.Unlock()
+
+	// Histograms carry their own lock, so samples are recorded outside the
+	// global metrics lock — shrinking its critical section under contention.
+	if globalHist != nil {
+		globalHist.Record(duration)
 	}
-	m.byRouteHistogram[route].Record(duration)
+	routeHist.Record(duration)
 }
 
 // ErrorWindow reports the error rate over the last `size` requests (a
@@ -240,14 +265,16 @@ func (m *Metrics) Snapshot() MetricsSnapshot {
 	for key, h := range m.byRouteHistogram {
 		clonePercentiles[key] = h.Snapshot()
 	}
+	totalRequests := m.totalRequests.Load()
+	totalLatency := time.Duration(m.totalLatency.Load())
 	avgLatency := time.Duration(0)
-	if m.totalRequests > 0 {
-		avgLatency = m.totalLatency / time.Duration(m.totalRequests)
+	if totalRequests > 0 {
+		avgLatency = totalLatency / time.Duration(totalRequests)
 	}
 	return MetricsSnapshot{
-		TotalRequests:      m.totalRequests,
-		TotalErrors:        m.totalErrors,
-		TotalLatency:       m.totalLatency,
+		TotalRequests:      totalRequests,
+		TotalErrors:        m.totalErrors.Load(),
+		TotalLatency:       totalLatency,
 		AvgLatency:         avgLatency,
 		ByMethod:           cloneMethod,
 		ByRoute:            cloneRoute,
@@ -348,7 +375,7 @@ func (sr *statusRecorder) Write(data []byte) (int, error) {
 
 // Flush forwards to the underlying writer when it supports flushing, so
 // streaming responses (SSE — including the HMR hub — and chunked encoding)
-// keep working when metrics/logging/audit middleware wraps the handler.
+// keep working when metrics/logging middleware wraps the handler.
 func (sr *statusRecorder) Flush() {
 	if f, ok := sr.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -362,11 +389,31 @@ func (sr *statusRecorder) Unwrap() http.ResponseWriter {
 	return sr.ResponseWriter
 }
 
+// statusRecorderPool recycles per-request response wrappers used by the
+// metrics/logging/health middleware, avoiding one allocation per
+// request on instrumented servers.
+var statusRecorderPool = sync.Pool{
+	New: func() any { return new(statusRecorder) },
+}
+
 func newStatusRecorder(w http.ResponseWriter) *statusRecorder {
+	sr, _ := statusRecorderPool.Get().(*statusRecorder)
 	if w == nil {
-		return &statusRecorder{status: http.StatusOK}
+		*sr = statusRecorder{status: http.StatusOK}
+		return sr
 	}
-	return &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	*sr = statusRecorder{ResponseWriter: w, status: http.StatusOK}
+	return sr
+}
+
+// releaseStatusRecorder returns the wrapper to the pool after the request
+// completes. Callers must not use the recorder afterwards.
+func releaseStatusRecorder(sr *statusRecorder) {
+	if sr == nil {
+		return
+	}
+	sr.ResponseWriter = nil
+	statusRecorderPool.Put(sr)
 }
 
 func (sr *statusRecorder) StatusCode() int {

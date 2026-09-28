@@ -322,3 +322,35 @@ func TestNewRouteProxyAppliesConfiguredHeaders(t *testing.T) {
 		t.Fatalf("upstream X-Tenant = %q, want acme", gotHeader)
 	}
 }
+
+// TestResolveRouteTargetEdgeCases covers the nil-registry, unknown-route,
+// upstream-without-healthy-pool, and route-without-target branches.
+func TestResolveRouteTargetEdgeCases(t *testing.T) {
+	if _, ok := (*RouteRegistry)(nil).ResolveRouteTarget("x"); ok {
+		t.Error("nil registry must not resolve")
+	}
+	registry := NewRouteRegistry()
+	if _, ok := registry.ResolveRouteTarget("missing"); ok {
+		t.Error("unknown route must not resolve")
+	}
+	if err := registry.RegisterUpstream(UpstreamConfig{Name: "dead", Target: "http://dead.internal", Enabled: true, Healthy: false}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.Register(RouteConfig{Name: "r1", Method: "GET", Path: "/r1", Upstream: "dead", Weight: 100, Enabled: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := registry.ResolveRouteTarget("r1"); ok {
+		t.Error("route with no healthy upstream must not resolve")
+	}
+	if err := registry.Register(RouteConfig{Name: "r2", Method: "GET", Path: "/r2", Weight: 100, Enabled: true}); err == nil {
+		t.Fatal("expected route without Target or Upstream to be rejected at registration")
+	}
+}
+
+// TestNewProxyUnknownRoute verifies the error path of NewProxy.
+func TestNewProxyUnknownRoute(t *testing.T) {
+	registry := NewRouteRegistry()
+	if _, err := registry.NewProxy("missing"); err == nil {
+		t.Fatal("expected NewProxy on unknown route to fail")
+	}
+}

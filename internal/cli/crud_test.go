@@ -299,3 +299,42 @@ func TestRunGenerateCRUDRefusesToOverwrite(t *testing.T) {
 		}
 	})
 }
+
+func TestRunGenerateCRUDReportsModuleNameError(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir, func() {
+		setupSQLiteMVCProject(t)
+		if err := os.WriteFile("go.mod", []byte("require modernc.org/sqlite v1.0.0\n"), 0o644); err != nil {
+			t.Fatalf("write go.mod: %v", err)
+		}
+
+		output := captureStdout(t, func() {
+			RunGenerateCRUD([]string{"User", "name:string"})
+		})
+		if !strings.Contains(output, "could not determine module name") {
+			t.Fatalf("expected module name error, got %q", output)
+		}
+	})
+}
+
+func TestRunGenerateCRUDReportsWriteError(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir, func() {
+		setupSQLiteMVCProject(t)
+		// "models" as a regular file makes MkdirAll("models") fail after the
+		// pre-flight Stat checks pass (models/user.go does not exist yet).
+		if err := os.RemoveAll("models"); err != nil {
+			t.Fatalf("remove models dir: %v", err)
+		}
+		if err := os.WriteFile("models", []byte("not a directory"), 0o644); err != nil {
+			t.Fatalf("write models file: %v", err)
+		}
+
+		output := captureStdout(t, func() {
+			RunGenerateCRUD([]string{"User", "name:string"})
+		})
+		if !strings.Contains(output, "Could not generate CRUD") {
+			t.Fatalf("expected write failure message, got %q", output)
+		}
+	})
+}

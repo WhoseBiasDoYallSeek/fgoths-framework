@@ -1,6 +1,6 @@
 # Framework version — single source of truth for release builds.
 # Bump this (or override via ldflags) for maintenance releases.
-VERSION ?= 1.0.0
+VERSION ?= 1.1.0
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -8,7 +8,11 @@ LDFLAGS = -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Versio
           -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Commit=$(COMMIT) \
           -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.BuildDate=$(DATE)
 
-.PHONY: build test cover benchmark version check-templates clean
+# Expose ldflags for CI release builds (single source of truth).
+print-ldflags:
+	@echo "$(LDFLAGS)"
+
+.PHONY: build test cover benchmark version check-templates print-ldflags clean
 
 # Compile the CLI locally with version metadata stamped in
 build:

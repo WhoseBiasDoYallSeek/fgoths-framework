@@ -22,7 +22,11 @@ import (
 	"time"
 )
 
-var tenantContextKey = struct{}{}
+// tenantCtxKey is a distinct unexported type so the tenant value cannot
+// collide with other request-scoped keys (JWT claims, mTLS identity).
+type tenantCtxKey struct{}
+
+var tenantContextKey = tenantCtxKey{}
 
 // ContextTenant returns the tenant identifier attached to the current request.
 func ContextTenant(r *http.Request) string {

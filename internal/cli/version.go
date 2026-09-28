@@ -22,7 +22,7 @@ import (
 // Version is the framework semver. The default is the development fallback;
 // release builds override it via ldflags:
 //
-//	go build -ldflags="-X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Version=1.0.0"
+//	go build -ldflags="-X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Version=1.1.0"
 //
 // Maintenance and future releases only need to change this value (or pass the
 // ldflags flag at build time) — everything else derives from it.

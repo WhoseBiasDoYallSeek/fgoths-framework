@@ -226,3 +226,90 @@ func TestRunSyncTemplatesDriftExits(t *testing.T) {
 		t.Error("expected osExit to be invoked on drift")
 	}
 }
+
+// TestEnsureToolResolvesTemplFromPath covers the success branch of ensureTool:
+// with templ on PATH, ensureTool returns nil without attempting install.
+// The real binary is executed only in resolution (LookPath), never run.
+func TestEnsureToolResolvesTemplFromPath(t *testing.T) {
+	templBin := t.TempDir()
+	fake := filepath.Join(templBin, "templ")
+	script := "#!/bin/sh\nexit 0\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", templBin)
+
+	if err := ensureTool("templ", "go install github.com/a-h/templ/cmd/templ@latest"); err != nil {
+		t.Fatalf("expected ensureTool to resolve templ from PATH, got: %v", err)
+	}
+}
+
+// TestRunGenerateOnceErrorPaths drives runGenerateOnce in a directory with a
+// .templ file but no usable toolchain, covering both osExit branches
+// (ensureTool failure and runTempl failure) without touching the real
+// toolchain. The go-install fallback genuinely runs (populating a scratch
+// modcache), so caches live in a session-scoped dir that tolerates Go's
+// read-only modcache semantics instead of t.TempDir (whose RemoveAll fails).
+func TestRunGenerateOnceErrorPaths(t *testing.T) {
+	if testing.Short() {
+		t.Skip("runs the real go toolchain; skipped in short mode")
+	}
+	scratch := filepath.Join(os.TempDir(), "fgoths-gen-once-test")
+	// The go toolchain marks its modcache read-only; os.RemoveAll chokes on
+	// it, so chmod the tree writable before removal (best-effort: a leftover
+	// scratch dir on failure is harmless).
+	t.Cleanup(func() {
+		_ = filepath.Walk(scratch, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			return os.Chmod(path, 0o755)
+		})
+		_ = os.RemoveAll(scratch)
+	})
+	emptyDir := filepath.Join(scratch, "project")
+	if err := os.MkdirAll(emptyDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(emptyDir, "home.templ"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(scratch) })
+
+	withWorkingDir(t, emptyDir, func() {
+		_, restore := stubOSExit(t)
+		defer restore()
+		// Isolate PATH so templ is absent, but keep `go` findable via a
+		// symlink so the go-install fallback branch is exercised.
+		goBin, err := exec.LookPath("go")
+		if err != nil {
+			t.Skip("go not on PATH; cannot exercise go-install fallback")
+		}
+		binDir := filepath.Join(scratch, "bin")
+		if err := os.MkdirAll(binDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(goBin, filepath.Join(binDir, "go")); err != nil {
+			t.Fatal(err)
+		}
+		homeDir := filepath.Join(scratch, "home")
+		if err := os.MkdirAll(homeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", binDir)
+		t.Setenv("HOME", homeDir)
+		t.Setenv("GOPATH", filepath.Join(homeDir, "gopath"))
+		t.Setenv("GOMODCACHE", filepath.Join(homeDir, "gomodcache"))
+		t.Setenv("GOCACHE", filepath.Join(homeDir, "gocache"))
+		t.Setenv("GOFLAGS", "-mod=mod")
+
+		defer func() {
+			if r := recover(); r != nil {
+				if _, ok := r.(exitSentinel); !ok {
+					panic(r)
+				}
+			}
+		}()
+		captureStdout(t, func() { runGenerateOnce() })
+	})
+}

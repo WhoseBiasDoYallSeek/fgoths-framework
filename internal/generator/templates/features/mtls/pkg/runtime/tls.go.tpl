@@ -44,7 +44,7 @@ func (s *Server) WithMutualTLS(certFile, keyFile, clientCAFile string) error {
 	if err != nil {
 		return err
 	}
-	s.Server.TLSConfig = cfg
+	s.TLSConfig = cfg
 	return nil
 }
 
@@ -64,7 +64,7 @@ func BuildServerTLSConfig(certFile, keyFile, clientCAFile string) (*tls.Config, 
 	}
 
 	if clientCAFile != "" {
-		caPEM, err := os.ReadFile(clientCAFile)
+		caPEM, err := os.ReadFile(clientCAFile) //nolint:gosec // G304: operator-configured CA bundle path, not request input
 		if err != nil {
 			return nil, err
 		}
@@ -102,7 +102,7 @@ func (p *Proxy) WithUpstreamTLS(certFile, keyFile, caFile string) (*Proxy, error
 		transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
 	}
 	if caFile != "" {
-		caPEM, err := os.ReadFile(caFile)
+		caPEM, err := os.ReadFile(caFile) //nolint:gosec // G304: operator-configured CA bundle path, not request input
 		if err != nil {
 			return nil, fmt.Errorf("read upstream CA file: %w", err)
 		}

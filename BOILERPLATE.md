@@ -76,7 +76,8 @@ graph TD
     │       └── ...                  # metrics, health, rollout, secrets, tenant
     ├── benchmarks/                  # Router comparison suite + stress scripts
     ├── examples/
-    │   └── proxy-demo/              # Minimal reverse-proxy example
+    │   ├── api-demo/                # Generated `api` preset (metrics + openapi)
+    │   └── webapp-demo/             # Generated `webapp` preset (Templ + HTMX + SQLite)
     ├── docs/
     │   └── adr/                     # Architecture Decision Records
     │       └── 0001-native-go-proxy-over-envoy.md

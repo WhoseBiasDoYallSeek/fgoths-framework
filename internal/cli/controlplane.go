@@ -58,12 +58,14 @@ func RunControlPlane(args []string) {
 		fmt.Println("   Set FGOTHS_CP_TOKEN or pass --token=<admin-token>.")
 		fmt.Println("   The API refuses to serve without a token (fails closed).")
 		osExit(1)
+		return
 	}
 
 	cp, err := newControlPlaneServer(storePath, token)
 	if err != nil {
 		fmt.Printf("❌ Error: %v\n", err)
 		osExit(1)
+		return
 	}
 
 	fmt.Println("🎛️  FGOTHS Control Plane API")
@@ -90,16 +92,29 @@ func RunControlPlane(args []string) {
 	server.OnShutdown(func(ctx context.Context) error {
 		return cp.Close()
 	})
+	serveControlPlaneUntilSignal(server, signalStopChan())
+}
+
+// signalStopChan returns a channel that receives SIGINT/SIGTERM notifications.
+// It is a package-level var so tests can substitute a synthetic channel.
+var signalStopChan = func() chan os.Signal {
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
+	return stop
+}
+
+// serveControlPlaneUntilSignal serves the control plane until a signal arrives
+// on stop, then performs a graceful shutdown. The listening banner is printed
+// after the serve goroutine starts, mirroring the previous behavior.
+func serveControlPlaneUntilSignal(server *runtime.Server, stop chan os.Signal) {
 	go func() {
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("control plane failed: %v", err)
 		}
 	}()
 
-	fmt.Printf("\n✅ Control plane listening on http://localhost%s\n", addr)
+	fmt.Printf("\n✅ Control plane listening on http://localhost%s\n", server.Addr)
 
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	<-stop
 	fmt.Println("\n👋 Shutting down control plane gracefully...")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

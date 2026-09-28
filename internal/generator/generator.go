@@ -15,9 +15,11 @@
 package generator
 
 import (
+	"bytes"
 	"embed"
 	"errors"
 	"fmt"
+	"go/format"
 	"io"
 	"os"
 	"path/filepath"
@@ -232,7 +234,10 @@ func generateBase(projectName string, data TemplateData) error {
 		"templates/base/gitignore.tpl",
 		"templates/base/cmd/dev/main.go.tpl",
 		"templates/base/static/css/app.css.tpl",
+		"templates/base/pkg/runtime/router.go.tpl",
 		"templates/base/pkg/runtime/server.go.tpl",
+		"templates/base/pkg/runtime/proxy.go.tpl",
+		"templates/base/pkg/runtime/requestid.go.tpl",
 		"templates/base/pkg/runtime/reuseport_linux.go.tpl",
 		"templates/base/pkg/runtime/reuseport_other.go.tpl",
 		"templates/base/pkg/runtime/reuseport_posix.go.tpl",
@@ -354,16 +359,26 @@ func processTemplate(projectName, templatePath string, data TemplateData) error 
 		return fmt.Errorf("failed to parse template %s: %w", templatePath, err)
 	}
 
-	// Create output file
-	outFile, err := os.Create(targetPath)
-	if err != nil {
-		return fmt.Errorf("failed to create file %s: %w", targetPath, err)
-	}
-	defer func() { _ = outFile.Close() }()
-
-	// Execute template
-	if err := tmpl.Execute(outFile, data); err != nil {
+	var rendered bytes.Buffer
+	if err := tmpl.Execute(&rendered, data); err != nil {
 		return fmt.Errorf("failed to execute template %s: %w", templatePath, err)
+	}
+	output := rendered.Bytes()
+
+	// Conditional template blocks leave blank-line runs and misaligned
+	// declarations behind; gofmt every generated Go file so projects pass
+	// `gofmt -l` out of the box. A formatting failure means the template
+	// rendered invalid Go — surface it now instead of at the user's build.
+	if strings.HasSuffix(targetPath, ".go") {
+		formatted, err := format.Source(output)
+		if err != nil {
+			return fmt.Errorf("template %s rendered invalid Go: %w", templatePath, err)
+		}
+		output = formatted
+	}
+
+	if err := os.WriteFile(targetPath, output, 0o644); err != nil {
+		return fmt.Errorf("failed to create file %s: %w", targetPath, err)
 	}
 
 	fmt.Printf("  ✓ Created %s\n", relativePath)

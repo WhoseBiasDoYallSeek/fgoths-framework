@@ -238,7 +238,7 @@ func TestClaimMatches(t *testing.T) {
 func TestAsFloat64(t *testing.T) {
 	cases := []any{
 		float32(1), float64(1), int(1), int8(1), int16(1), int32(1), int64(1),
-		uint(1), uint8(1),
+		uint(1), uint8(1), uint16(1), uint32(1), uint64(1),
 	}
 	for _, v := range cases {
 		got, ok := asFloat64(v)

@@ -312,3 +312,18 @@ func TestPartialSegmentMultipleParams(t *testing.T) {
 		t.Errorf("/files/archive.tar.gz: body %s, want %s", got, want)
 	}
 }
+
+// TestValidParamNameRejectsNonASCII guards the rune->byte narrowing: U+0167
+// ('ŧ') truncates to 0x67 ('g') and must not be accepted as a valid name.
+func TestValidParamNameRejectsNonASCII(t *testing.T) {
+	for _, name := range []string{"idŧ", "ŧ", "名前", "id\u00e9"} {
+		if validParamName(name) {
+			t.Errorf("validParamName(%q) = true, want false", name)
+		}
+	}
+	for _, name := range []string{"id", "user_id", "ID2"} {
+		if !validParamName(name) {
+			t.Errorf("validParamName(%q) = false, want true", name)
+		}
+	}
+}

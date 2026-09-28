@@ -15,6 +15,8 @@
 package runtime
 
 import (
+	"crypto/tls"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -264,6 +266,18 @@ func TestSchemeFromRequestBranches(t *testing.T) {
 	if got := schemeFromRequest(req); got != "http" {
 		t.Fatalf("schemeFromRequest(plain) = %q, want http", got)
 	}
+	// TLS request reports https.
+	tlsReq := httptest.NewRequest(http.MethodGet, "https://example.com/x", nil)
+	tlsReq.TLS = &tls.ConnectionState{}
+	if got := schemeFromRequest(tlsReq); got != "https" {
+		t.Fatalf("schemeFromRequest(tls) = %q, want https", got)
+	}
+	// Explicit URL scheme wins over the default.
+	schemeReq := httptest.NewRequest(http.MethodGet, "http://example.com/x", nil)
+	schemeReq.URL.Scheme = "ws"
+	if got := schemeFromRequest(schemeReq); got != "ws" {
+		t.Fatalf("schemeFromRequest(ws) = %q, want ws", got)
+	}
 	if got := statusCode(nil); got != 0 {
 		t.Fatalf("statusCode(nil) = %d, want 0", got)
 	}
@@ -320,4 +334,49 @@ func TestRequestIDGenerationAndReuse(t *testing.T) {
 	if got := newRequestID(); got == "" {
 		t.Fatal("expected newRequestID to return a non-empty ID")
 	}
+}
+
+// TestRequestIDFallbackWhenRandFails verifies the timestamp fallback ID when
+// crypto/rand fails (forced via the randRead indirection).
+func TestRequestIDFallbackWhenRandFails(t *testing.T) {
+	orig := randRead
+	randRead = func(b []byte) (int, error) { return 0, errors.New("forced failure") }
+	defer func() { randRead = orig }()
+
+	id := newRequestID()
+	if !strings.HasPrefix(id, "fgoths-") {
+		t.Fatalf("fallback ID = %q, want fgoths- prefix", id)
+	}
+	if len(id) <= len("fgoths-") {
+		t.Fatalf("fallback ID = %q, want timestamp suffix", id)
+	}
+}
+
+// TestWithRequestIDNilGuards covers the nil-receiver and nil-request branches
+// of the request-ID middleware.
+func TestWithRequestIDNilGuards(t *testing.T) {
+	if got := (*Server)(nil).WithRequestID(); got != nil {
+		t.Error("WithRequestID on nil server must return nil")
+	}
+	server := NewServer(":0").WithRequestID()
+	server.Get("/x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	res := httptest.NewRecorder()
+	server.Handler.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/x", nil))
+	if res.Header().Get("X-Request-ID") == "" {
+		t.Error("expected X-Request-ID header on response")
+	}
+}
+
+// TestWithOpenTelemetryNilGuards covers the nil-receiver and empty-name
+// branches of the tracing middleware.
+func TestWithOpenTelemetryNilGuards(t *testing.T) {
+	if got := (*Server)(nil).WithOpenTelemetry("svc"); got != nil {
+		t.Error("WithOpenTelemetry on nil server must return nil")
+	}
+	if got := (*Proxy)(nil).WithOpenTelemetry("svc"); got != nil {
+		t.Error("WithOpenTelemetry on nil proxy must return nil")
+	}
+	server := NewServer(":0").WithOpenTelemetry("") // empty name falls back
+	server.Get("/x", func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) })
+	server.Handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/x", nil))
 }

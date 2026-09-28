@@ -152,7 +152,7 @@ func (r *RouteRegistry) PickUpstream(service string) (UpstreamConfig, bool) {
 	if len(pool) == 0 {
 		return UpstreamConfig{}, false
 	}
-	pick := rand.Intn(total)
+	pick := rand.Intn(total) //nolint:gosec // G404: weighted load distribution, not a security decision
 	for _, up := range pool {
 		pick -= up.Weight
 		if pick < 0 {

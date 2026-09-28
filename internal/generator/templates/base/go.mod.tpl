@@ -3,8 +3,8 @@ module {{.ProjectName}}
 go 1.26.0
 
 require (
-        github.com/fsnotify/fsnotify v1.7.0
-        github.com/google/flatbuffers v24.3.25+incompatible
+	github.com/fsnotify/fsnotify v1.7.0
+	github.com/google/flatbuffers v24.3.25+incompatible
 )
 
 {{- if .IsMVC }}

@@ -21,15 +21,16 @@ import (
 )
 
 // Small indirections over the os package so sync-templates can be tested
-// without touching the real repository files.
+// without touching the real repository files. They are package-level vars so
+// tests can stub them (same pattern as osExit).
 
-func osReadFile(path string) ([]byte, error) { return os.ReadFile(path) }
+var osReadFile = func(path string) ([]byte, error) { return os.ReadFile(path) }
 
-func osWriteFile(path string, data []byte, perm os.FileMode) error {
+var osWriteFile = func(path string, data []byte, perm os.FileMode) error {
 	return os.WriteFile(path, data, perm)
 }
 
-func osIsNotExist(err error) bool { return errors.Is(err, os.ErrNotExist) }
+var osIsNotExist = func(err error) bool { return errors.Is(err, os.ErrNotExist) }
 
 // osExit is a package-level indirection over os.Exit so tests can stub it
 // without actually terminating the test binary. Production code reassigns it

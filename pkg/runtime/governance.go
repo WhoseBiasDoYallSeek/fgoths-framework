@@ -600,11 +600,11 @@ func (s *FileDeploymentStore) Save(state DeploymentLedgerState) error {
 		return fmt.Errorf("marshal deployment ledger state: %w", err)
 	}
 	if dir := filepath.Dir(s.path); dir != "." {
-		if err := os.MkdirAll(dir, 0o755); err != nil {
+		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return fmt.Errorf("create deployment store directory: %w", err)
 		}
 	}
-	if err := os.WriteFile(s.path, data, 0o644); err != nil {
+	if err := os.WriteFile(s.path, data, 0o600); err != nil {
 		return fmt.Errorf("write deployment ledger state: %w", err)
 	}
 	return nil
