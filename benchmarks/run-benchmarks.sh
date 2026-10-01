@@ -61,7 +61,6 @@ require go
 require vegeta
 
 echo "🧪 FGOTHS Benchmark Suite ($(date '+%Y-%m-%d %H:%M'))"
-echo "   Machine: $(uname -sm), $(sysctl -n hw.ncpu 2>/dev/null || nproc) cores"
 
 # ---------------------------------------------------------------------------
 section "1/5  Route dispatch comparison: FGOTHS vs stdlib (1.22+ patterns) vs chi vs gin vs go-zero"

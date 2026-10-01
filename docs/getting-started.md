@@ -17,8 +17,8 @@ fgoths version              # version: 1.4.0
 ```
 
 This puts `fgoths` in `$(go env GOPATH)/bin`, so make sure that folder is on
-your `PATH`. Prefer a prebuilt, checksum-verified binary or building from
-source? See [Install](../README.md#install).
+your `PATH`. Prefer building from source? See
+[Install](../README.md#install).
 
 ---
 

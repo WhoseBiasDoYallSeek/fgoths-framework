@@ -140,7 +140,7 @@ Rebuilds in the background and swaps processes without dropping
 connections. When `.templ`, CSS, JS, or HTML files change, the browser
 updates the page fragment in place (HMR) instead of doing a full reload.
 
-> Dev mode is tested on macOS and Linux.
+> Dev mode is tested on Unix-like systems.
 
 ---
 

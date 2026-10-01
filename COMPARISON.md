@@ -1,7 +1,7 @@
 # FGOTHS vs the Go ecosystem — measured comparison
 
-> All numbers below were measured locally on this repository (Apple M4,
-> Darwin arm64, 10 cores, Go 1.27). Reproduce everything yourself:
+> All numbers below were measured in a local test environment. Reproduce
+> everything yourself:
 > `./benchmarks/run-comparison.sh`, `make benchmark-saturation`, and
 > `make benchmark-surface`.
 >

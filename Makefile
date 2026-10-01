@@ -12,7 +12,7 @@ LDFLAGS = -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Versio
 print-ldflags:
 	@echo "$(LDFLAGS)"
 
-.PHONY: build test cover benchmark benchmark-quick benchmark-saturation benchmark-real-app benchmark-surface version release check-templates check-perf print-ldflags clean
+.PHONY: build test cover benchmark benchmark-quick benchmark-saturation benchmark-real-app benchmark-surface version check-templates check-perf print-ldflags clean
 
 # Compile the CLI locally with version metadata stamped in
 build:
@@ -21,10 +21,6 @@ build:
 # Print the stamped version without building into bin/
 version:
 	@go run -ldflags="$(LDFLAGS)" ./cmd/fgoths version
-
-# Reproducible, static release binaries for every platform plus SHA256SUMS.
-release:
-	VERSION=$(VERSION) ./scripts/release.sh
 
 # Run the full suite with the race detector.
 test:

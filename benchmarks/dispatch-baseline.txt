@@ -1,5 +1,5 @@
 # Dispatch performance baseline (medians of 3 runs).
-# Reference machine: Apple M4, Go 1.26, darwin/arm64.
+# Reference: local test environment.
 # CI fails when median ns/op regresses more than 10% or allocations increase.
 # Update deliberately (BENCH_BASELINE_UPDATE=1) after intentional changes.
 BASELINE_PARAM_TIME=610

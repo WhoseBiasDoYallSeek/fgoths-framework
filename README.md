@@ -83,9 +83,7 @@ and those last two counts are for the framework alone. Every extra module is
 opt-in and visible in `go.mod`. [Measured →](./docs/performance.md#dependency-surface)
 
 The tooling is built to be verified too. `fgoths build --sbom` writes a
-CycloneDX SBOM of exactly what was linked into your binary. The CLI release
-binaries are reproducible, so you can rebuild them from the tag and get the
-same `SHA256SUMS`.
+CycloneDX SBOM of exactly what was linked into your binary.
 
 ### 3. Resilience without a sidecar
 
@@ -98,7 +96,7 @@ staged rollouts from the same toolchain.
 ### And it doesn't cost you speed
 
 FGOTHS has the fastest static-route dispatch among stdlib, gin, chi, and
-go-zero. It sustains about 100k req/s on a laptop, matches go-zero under the
+go-zero. It sustains about 100k req/s in a local test environment, matches go-zero under the
 same load, and the binary is a ~6 MB static file. The test suite has 100%
 statement coverage and runs clean under the race detector.
 [See the numbers →](./docs/performance.md)
@@ -112,18 +110,6 @@ statement coverage and runs clean under the race detector.
 ```bash
 go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest
 fgoths version
-```
-
-**Verified binary:** download your platform from the
-[latest release](https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/latest)
-and check it against `SHA256SUMS`:
-
-```bash
-V=1.4.0 P=darwin_arm64   # or linux_amd64, linux_arm64, darwin_amd64, windows_amd64.exe
-curl -LO https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/download/v$V/fgoths_${V}_$P
-curl -LO https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/download/v$V/SHA256SUMS
-shasum -a 256 -c SHA256SUMS --ignore-missing
-chmod +x fgoths_${V}_$P && sudo mv fgoths_${V}_$P /usr/local/bin/fgoths
 ```
 
 **From source:** `git clone` this repository and run `make build`. The binary

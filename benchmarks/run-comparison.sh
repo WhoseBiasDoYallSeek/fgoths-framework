@@ -71,7 +71,6 @@ require go
 require vegeta
 
 echo "🧪 FGOTHS vs go-zero — end-to-end comparison ($(date '+%Y-%m-%d %H:%M'))"
-echo "   Machine: $(uname -sm), $(sysctl -n hw.ncpu 2>/dev/null || nproc) cores"
 
 # ---------------------------------------------------------------------------
 section "Build & start servers"

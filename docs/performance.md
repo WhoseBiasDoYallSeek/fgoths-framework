@@ -1,14 +1,14 @@
 # Performance
 
 **Short version:** FGOTHS has the fastest static-route dispatch among the
-stdlib, gin, chi, and go-zero, sustains ~100k req/s on a laptop, and does it
+stdlib, gin, chi, and go-zero, sustains ~100k req/s in a local test environment, and does it
 while linking a single external module. Under load the cost goes to the
 operating system's network stack, JSON, and your database, not to the
 framework.
 
-> All numbers come from one machine: Apple M4, 10 CPUs, macOS arm64,
-> Go 1.27.0. They are recorded results, not guarantees. Run the benchmarks
-> on your own hardware before relying on them.
+> All numbers were measured in a local test environment. They are recorded
+> results, not guarantees. Run the benchmarks on your own infrastructure
+> before relying on them.
 
 ---
 

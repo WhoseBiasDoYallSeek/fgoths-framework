@@ -48,7 +48,7 @@ fi
 if [[ "${BENCH_BASELINE_UPDATE:-0}" == "1" ]]; then
   cat > "$BASELINE_FILE" << EOF
 # Dispatch performance baseline (medians of $RUNS runs).
-# Reference machine: Apple M4, Go 1.26, darwin/arm64.
+# Reference: local test environment.
 # CI fails when median ns/op regresses more than 10% or allocations increase.
 # Update deliberately (BENCH_BASELINE_UPDATE=1) after intentional changes.
 BASELINE_PARAM_TIME=$PARAM_TIME
