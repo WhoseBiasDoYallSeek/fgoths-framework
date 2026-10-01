@@ -84,7 +84,7 @@ func RunInit(args []string) error {
 	// Flags
 	name := fs.String("name", "", "Project name")
 	dir := fs.String("dir", "", "Target directory the project is created in (default: current directory)")
-	db := fs.String("db", "", "Database override (none|sqlite); defaults to the preset's database")
+	db := fs.String("db", "", "Database override (none|sqlite|postgres|mysql); defaults to the preset's database")
 	featuresStr := fs.String("features", "", "Comma-separated features added to the preset defaults")
 	preset := fs.String("preset", "", "Project preset: api or webapp (required)")
 

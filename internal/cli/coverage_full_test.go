@@ -462,16 +462,27 @@ func TestRunDevMakeFailures(t *testing.T) {
 				t.Fatal(err)
 			}
 			bin := t.TempDir()
-			writeCLIScript(t, bin, "make", "#!/bin/sh\ntrap '' TERM\n/bin/sleep 1\n")
+			ready := filepath.Join(t.TempDir(), "ready")
+			writeCLIScript(t, bin, "make", "#!/bin/sh\ntrap '' TERM\n: > '"+ready+"'\n/bin/sleep 1\n")
 			t.Setenv("PATH", bin)
 			originalNotify := notifyDevSignals
 			notifyDevSignals = func(ch chan<- os.Signal, signals ...os.Signal) {
 				_ = signals
-				time.Sleep(100 * time.Millisecond)
+				// Signal only after the fake make has installed its TERM trap.
+				deadline := time.Now().Add(5 * time.Second)
+				for time.Now().Before(deadline) {
+					if _, err := os.Stat(ready); err == nil {
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
 				ch <- syscall.SIGTERM
 			}
 			t.Cleanup(func() { notifyDevSignals = originalNotify })
-			RunDev(nil)
+			codes := recordCLIExits(t, func() { RunDev(nil) })
+			if len(codes) != 0 {
+				t.Fatalf("exit codes = %v, want none", codes)
+			}
 		})
 	})
 }

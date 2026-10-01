@@ -11,9 +11,9 @@
 > native Go layer: routing, proxy with connection pooling, retry, circuit
 > breaker, health-checked failover, governance and control plane APIs. It
 > remains intentionally a lightweight embedded runtime, not a full enterprise
-> ingress platform. v1.1.0 added a runtime allocation pass (dispatch
-> 16→13/13→10 allocs/op), server lifecycle options (`WithListener`,
-> `WithReusePort`, `OnShutdown`), and a dispatch allocation regression gate.
+> ingress platform. Release history (allocation pass, lifecycle options,
+> conflict-aware `fgoths upgrade`) lives in [CHANGELOG.md](./CHANGELOG.md);
+> the upgrade mechanics are in [docs/upgrading.md](./docs/upgrading.md).
 
 ---
 
@@ -34,7 +34,7 @@ pkg/runtime/         # selected FGOTHS runtime sources and feature code
 ```
 
 **Principle:** zero ceremony. A JSON API should be a folder you can read in a
-minute. The static binary (~6.3 MB, `CGO_ENABLED=0`) runs in a scratch
+minute. The static binary (~6 MB, `CGO_ENABLED=0`) runs in a scratch
 container with no base image at all.
 
 ### MVC (the `webapp` preset)

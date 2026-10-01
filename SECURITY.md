@@ -3,13 +3,15 @@
 ## Supported Versions
 
 FGOTHS follows [Semantic Versioning](https://semver.org). Security fixes are
-applied to the latest `main` branch only.
+applied to the latest release on `main` only.
 
 | Version | Supported |
 |---|---|
-| 1.1.0 (main) | ✅ |
-| 1.0.0 | ✅ |
-| < 1.0.0 | ❌ |
+| 1.3.x (latest) | ✅ |
+| < 1.3.0 | ❌ |
+
+Projects created with an older release receive runtime fixes through
+`fgoths upgrade`. See [Upgrading a project](./docs/upgrading.md).
 
 ## Reporting a Vulnerability
 

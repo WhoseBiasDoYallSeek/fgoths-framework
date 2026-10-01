@@ -6,6 +6,18 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- Documentation reorganized for humans: the README is now a short product
+  overview, with new task-focused guides in `docs/` (getting started, CLI
+  reference, upgrading, performance). Deep technical material stays in
+  `ARCHITECTURE.md`, `COMPARISON.md`, and the ADRs.
+- `fgoths init --help` now lists every supported `--db` value
+  (`none|sqlite|postgres|mysql`).
+
+### Fixed
+- Removed a race in the `fgoths dev` signal-forwarding test that could
+  intermittently abort the `internal/cli` test binary under load.
+
 ## [1.3.0] - 2026-10-01
 
 ### Added

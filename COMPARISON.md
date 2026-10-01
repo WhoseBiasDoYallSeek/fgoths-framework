@@ -14,13 +14,14 @@
 > claim that FGOTHS should replace these frameworks broadly or that package
 > counts alone prove lower security risk.
 >
-> **v1.1.0 note:** the runtime allocation pass (single context value per
+> **Since v1.1.0:** the runtime allocation pass (single context value per
 > request, static-route fast path, pooled recorders, atomic metric counters)
 > changed the dispatch profile. Fresh numbers (2026-09-28, same machine):
 > param **531 ns / 13 allocs**, static **365 ns / 10 allocs** — static
 > dispatch is now the fastest of the group, and param allocations beat chi
 > (14) and go-zero (15). The tables below predate the pass and are kept for
-> the honest before/after record.
+> the honest before/after record. A friendlier summary lives in
+> [docs/performance.md](./docs/performance.md).
 
 ## Route dispatch (in-process: routing + handler, no network)
 
@@ -98,5 +99,5 @@ upgrade churn — not dispatch speed.
 | Model | Generator + embedded runtime | Full framework + codegen (goctl) | Compose-it-yourself |
 | Routing | stdlib-band speed, path params via lazy `PathValue` | Full-featured, slower dispatch | Full-featured |
 | Batteries | Health, metrics, OpenAPI, proxy, governance (opt-in) | RPC, JWT, monitoring, service framework | None — you assemble |
-| Footprint | ~8.8 MB static, 0 CGO, scratch images | Larger; more deps to audit | Small, but you build the ops layer |
+| Footprint | ~6 MB static, 0 CGO, scratch images | Larger; more deps to audit | Small, but you build the ops layer |
 | Best for | One organization's auditable service platform | Teams standardizing on one service framework | Teams that want zero framework lock-in |
