@@ -6,15 +6,54 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-01
+
+### Added
+- `fgoths generate crud` now produces a complete resource: list, create,
+  get, update, and delete by id, with a separate input type, a 1 MB body
+  limit, unknown-field rejection, 400/404 responses, and generic 500 errors.
+- `fgoths build --sbom` writes a CycloneDX 1.5 SBOM read from the binary's
+  embedded build info: only the modules actually linked, with versions,
+  checksums, replacements, and the Go toolchain. Output is reproducible
+  under `SOURCE_DATE_EPOCH`.
+- `fgoths upgrade` accepts projects created with v1.3.0 and now manages
+  `pkg/runtime/router.go`, so existing projects receive the new dispatch.
+- Release binaries for Linux, macOS, and Windows (amd64/arm64) with
+  `SHA256SUMS`. `make release` builds them reproducibly: static, `-trimpath`,
+  and stamped with the commit date, so the same commit and Go toolchain give
+  byte-identical files.
+- `make benchmark-surface` (`benchmarks/run-dep-surface.sh`) generates
+  projects and measures the modules linked into their binaries next to chi,
+  gin, and go-zero. The full benchmark and comparison scripts reuse it.
+
 ### Changed
 - Documentation reorganized for humans: the README is now a short product
-  overview, with new task-focused guides in `docs/` (getting started, CLI
+  overview that leads with real code and a real upgrade transcript, with new task-focused guides in `docs/` (getting started, CLI
   reference, upgrading, performance). Deep technical material stays in
   `ARCHITECTURE.md`, `COMPARISON.md`, and the ADRs.
 - `fgoths init --help` now lists every supported `--db` value
   (`none|sqlite|postgres|mysql`).
+- Product positioning rewritten around what sets FGOTHS apart: an owned yet
+  upgradable runtime, a minimal supply chain, sidecar-free resilience,
+  built-in governance, and hot reload without Node.
+- Dependency-surface figures now measure what ships: a default generated
+  API project links 1 external module (vs gin 18, go-zero 44). The previous
+  "5 packages" figure measured the whole framework runtime package instead.
+- Parameterized route dispatch no longer allocates in the router: the
+  matched pattern is recorded in `Request.Pattern` and `PathValue` is
+  resolved lazily, falling back to the standard library. In-process median:
+  401 ns / 1024 B / 10 allocs (was 471 ns / 1440 B / 13 allocs), on par with
+  the stdlib mux and ahead of chi and go-zero. Static routes stay the fastest
+  of the group at 338 ns.
 
 ### Fixed
+- Generated CRUD handlers no longer accept client-supplied `id` or
+  `created_at` values. `fgoths upgrade` does not rewrite CRUD code you already
+  generated; regenerate a resource or port the input-type pattern by hand.
+- The SBOM previously listed `go.mod` requirements without versions; it now
+  lists linked modules with exact versions.
+- `fgoths version` reported `0.0.0-dev` when installed with
+  `go install …@vX.Y.Z`; it now reports the module version.
 - Removed a race in the `fgoths dev` signal-forwarding test that could
   intermittently abort the `internal/cli` test binary under load.
 
@@ -206,7 +245,8 @@ reproducible benchmarks. The generated-project test matrix is not exhaustive.
 - Multi-tenancy quotas exist but are not validated under real multi-tenant
   production load.
 
-[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.0.0...v1.1.0

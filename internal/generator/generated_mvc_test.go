@@ -144,6 +144,27 @@ func TestGeneratedCRUDAndAssetsUseRuntimeServer(t *testing.T) {
 	if listResult.Code != http.StatusOK || !strings.Contains(listResult.Body.String(), "\"title\":\"generated\"") {
 		t.Fatalf("GET /api/tasks response = %d %s", listResult.Code, listResult.Body.String())
 	}
+	if strings.Contains(createResult.Body.String(), "\"created_at\":\"0001-") {
+		t.Fatalf("POST /api/tasks must return the stored created_at, got %s", createResult.Body.String())
+	}
+
+	for _, step := range []struct {
+		method, target, body, contains string
+		want                           int
+	}{
+		{http.MethodGet, "/api/tasks/1", "", "\"title\":\"generated\"", http.StatusOK},
+		{http.MethodPut, "/api/tasks/1", "{\"title\":\"renamed\"}", "\"title\":\"renamed\"", http.StatusOK},
+		{http.MethodPost, "/api/tasks", "{\"id\":7,\"title\":\"forged\"}", "unknown field", http.StatusBadRequest},
+		{http.MethodDelete, "/api/tasks/1", "", "", http.StatusNoContent},
+		{http.MethodGet, "/api/tasks/1", "", "not found", http.StatusNotFound},
+	} {
+		request := httptest.NewRequest(step.method, step.target, strings.NewReader(step.body))
+		result := httptest.NewRecorder()
+		server.Handler.ServeHTTP(result, request)
+		if result.Code != step.want || !strings.Contains(result.Body.String(), step.contains) {
+			t.Fatalf("%s %s = %d %s, want %d containing %q", step.method, step.target, result.Code, result.Body.String(), step.want, step.contains)
+		}
+	}
 
 	assetURL := assets.URL("css/app.css")
 	assetRequest := httptest.NewRequest(http.MethodGet, assetURL, nil)

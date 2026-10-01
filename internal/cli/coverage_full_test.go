@@ -40,7 +40,7 @@ func TestRunBuildFailureAndOptionalOutputErrors(t *testing.T) {
 	t.Run("optional artifacts report write errors", func(t *testing.T) {
 		withWorkingDir(t, t.TempDir(), func() {
 			bin := t.TempDir()
-			writeCLIScript(t, bin, "go", "#!/bin/sh\nif [ \"$1\" = \"list\" ]; then printf '\"Path\": \"example.com/app\"\\n'; fi\nexit 0\n")
+			writeCLIScript(t, bin, "go", "#!/bin/sh\nexit 0\n")
 			t.Setenv("PATH", bin)
 			if err := os.Mkdir("Dockerfile", 0o755); err != nil {
 				t.Fatal(err)
@@ -57,17 +57,6 @@ func TestRunBuildFailureAndOptionalOutputErrors(t *testing.T) {
 				}
 			}
 		})
-	})
-}
-
-func TestGenerateSBOMCommandError(t *testing.T) {
-	withWorkingDir(t, t.TempDir(), func() {
-		bin := t.TempDir()
-		writeCLIScript(t, bin, "go", "#!/bin/sh\nexit 1\n")
-		t.Setenv("PATH", bin)
-		if err := generateSBOM(); err == nil {
-			t.Fatal("generateSBOM() expected go list failure")
-		}
 	})
 }
 

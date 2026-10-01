@@ -49,6 +49,8 @@ type crudData struct {
 	Placeholders  string
 	ArgumentList  string
 	ScanArguments string
+	Assignments   string
+	IDPlaceholder string
 }
 
 var identifierPattern = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
@@ -80,6 +82,7 @@ func RunGenerateCRUD(args []string) {
 
 	fmt.Printf("✅ CRUD %s generated (model, handler, repository, migration + tests)\n", data.Entity)
 	fmt.Printf("   GET, POST /api/%s\n", data.Table)
+	fmt.Printf("   GET, PUT, DELETE /api/%s/{id}\n", data.Table)
 	fmt.Println("   Run `go test ./...` to validate the generated project.")
 }
 
@@ -114,17 +117,21 @@ func parseCRUDArgs(args []string) (crudData, error) {
 	columns := make([]string, 0, len(data.Fields))
 	placeholders := make([]string, 0, len(data.Fields))
 	arguments := make([]string, 0, len(data.Fields))
+	assignments := make([]string, 0, len(data.Fields))
 	scans := []string{"&item.ID"}
 	for index, field := range data.Fields {
 		columns = append(columns, field.Name)
 		placeholders = append(placeholders, fmt.Sprintf("?%d", index+1))
-		arguments = append(arguments, "item."+field.Exported)
+		assignments = append(assignments, fmt.Sprintf("%s = ?%d", field.Name, index+1))
+		arguments = append(arguments, "in."+field.Exported)
 		scans = append(scans, "&item."+field.Exported)
 	}
 	data.Columns = strings.Join(columns, ", ")
 	data.Placeholders = strings.Join(placeholders, ", ")
 	data.ArgumentList = strings.Join(arguments, ", ")
 	data.ScanArguments = strings.Join(scans, ", ")
+	data.Assignments = strings.Join(assignments, ", ")
+	data.IDPlaceholder = fmt.Sprintf("?%d", len(data.Fields)+1)
 	return data, nil
 }
 
@@ -350,6 +357,12 @@ type {{.Entity}} struct {
 {{range .Fields}}	{{.Exported}} {{.GoType}} ` + "`" + `json:"{{.Name}}"` + "`" + `
 {{end}}	CreatedAt time.Time ` + "`" + `json:"created_at"` + "`" + `
 }
+
+// {{.Entity}}Input is the client-writable subset of {{.Entity}}. The server
+// owns ID and CreatedAt, so requests can never set them.
+type {{.Entity}}Input struct {
+{{range .Fields}}	{{.Exported}} {{.GoType}} ` + "`" + `json:"{{.Name}}"` + "`" + `
+{{end}}}
 `
 
 const crudRepositoryTemplate = `package database
@@ -363,43 +376,95 @@ import (
 	"{{.ProjectName}}/models"
 )
 
-// {{.Entity}}Repository persists {{.EntityLower}} rows in SQLite.
+const {{.EntityLower}}Columns = "id, {{.Columns}}, created_at"
+
+// {{.Entity}}Repository persists {{.EntityLower}} rows in SQLite. Lookups of
+// missing rows return an error wrapping sql.ErrNoRows.
 type {{.Entity}}Repository struct{ db *sql.DB }
 
 func New{{.Entity}}Repository(db *sql.DB) {{.Entity}}Repository { return {{.Entity}}Repository{db: db} }
 
-func (r {{.Entity}}Repository) Create(ctx context.Context, item models.{{.Entity}}) (models.{{.Entity}}, error) {
-	res, err := r.db.ExecContext(ctx, "INSERT INTO {{.Table}} ({{.Columns}}) VALUES ({{.Placeholders}})", {{.ArgumentList}})
+func (r {{.Entity}}Repository) Create(ctx context.Context, in models.{{.Entity}}Input) (models.{{.Entity}}, error) {
+	row := r.db.QueryRowContext(ctx, "INSERT INTO {{.Table}} ({{.Columns}}) VALUES ({{.Placeholders}}) RETURNING "+{{.EntityLower}}Columns, {{.ArgumentList}})
+	item, err := scan{{.Entity}}(row)
 	if err != nil {
 		return models.{{.Entity}}{}, fmt.Errorf("insert {{.EntityLower}}: %w", err)
 	}
-	id, err := res.LastInsertId()
+	return item, nil
+}
+
+func (r {{.Entity}}Repository) Get(ctx context.Context, id uint64) (models.{{.Entity}}, error) {
+	row := r.db.QueryRowContext(ctx, "SELECT "+{{.EntityLower}}Columns+" FROM {{.Table}} WHERE id = ?1", id)
+	item, err := scan{{.Entity}}(row)
 	if err != nil {
-		return models.{{.Entity}}{}, fmt.Errorf("{{.EntityLower}} id: %w", err)
+		return models.{{.Entity}}{}, fmt.Errorf("get {{.EntityLower}} %d: %w", id, err)
 	}
-	item.ID = uint64(id)
 	return item, nil
 }
 
 func (r {{.Entity}}Repository) List(ctx context.Context) ([]models.{{.Entity}}, error) {
-	rows, err := r.db.QueryContext(ctx, "SELECT id, {{.Columns}}, created_at FROM {{.Table}} ORDER BY id")
+	rows, err := r.db.QueryContext(ctx, "SELECT "+{{.EntityLower}}Columns+" FROM {{.Table}} ORDER BY id")
 	if err != nil {
-		return nil, fmt.Errorf("list {{.EntityLower}}s: %w", err)
+		return nil, fmt.Errorf("list {{.Table}}: %w", err)
 	}
 	defer rows.Close()
 	items := make([]models.{{.Entity}}, 0)
 	for rows.Next() {
-		var item models.{{.Entity}}
-		var createdAt string
-		if err := rows.Scan({{.ScanArguments}}, &createdAt); err != nil {
-			return nil, fmt.Errorf("scan {{.EntityLower}}: %w", err)
-		}
-		if t, err := time.Parse("2006-01-02 15:04:05", createdAt); err == nil {
-			item.CreatedAt = t
+		item, err := scan{{.Entity}}(rows)
+		if err != nil {
+			return nil, fmt.Errorf("list {{.Table}}: %w", err)
 		}
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+func (r {{.Entity}}Repository) Update(ctx context.Context, id uint64, in models.{{.Entity}}Input) (models.{{.Entity}}, error) {
+	row := r.db.QueryRowContext(ctx, "UPDATE {{.Table}} SET {{.Assignments}} WHERE id = {{.IDPlaceholder}} RETURNING "+{{.EntityLower}}Columns, {{.ArgumentList}}, id)
+	item, err := scan{{.Entity}}(row)
+	if err != nil {
+		return models.{{.Entity}}{}, fmt.Errorf("update {{.EntityLower}} %d: %w", id, err)
+	}
+	return item, nil
+}
+
+func (r {{.Entity}}Repository) Delete(ctx context.Context, id uint64) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM {{.Table}} WHERE id = ?1", id)
+	if err != nil {
+		return fmt.Errorf("delete {{.EntityLower}} %d: %w", id, err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete {{.EntityLower}} %d: %w", id, err)
+	}
+	if affected == 0 {
+		return fmt.Errorf("delete {{.EntityLower}} %d: %w", id, sql.ErrNoRows)
+	}
+	return nil
+}
+
+func scan{{.Entity}}(row interface{ Scan(...any) error }) (models.{{.Entity}}, error) {
+	var item models.{{.Entity}}
+	var createdAt string
+	if err := row.Scan({{.ScanArguments}}, &createdAt); err != nil {
+		return models.{{.Entity}}{}, err
+	}
+	parsed, err := parse{{.Entity}}Time(createdAt)
+	if err != nil {
+		return models.{{.Entity}}{}, err
+	}
+	item.CreatedAt = parsed
+	return item, nil
+}
+
+// parse{{.Entity}}Time accepts SQLite's CURRENT_TIMESTAMP layout and RFC 3339.
+func parse{{.Entity}}Time(value string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02 15:04:05", time.RFC3339Nano} {
+		if parsed, err := time.Parse(layout, value); err == nil {
+			return parsed, nil
+		}
+	}
+	return time.Time{}, fmt.Errorf("unrecognized created_at timestamp %q", value)
 }
 `
 
@@ -408,12 +473,19 @@ const crudHandlerTemplate = `package handlers
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"io"
+	"log/slog"
 	"net/http"
+	"strconv"
 
 	"{{.ProjectName}}/internal/database"
 	"{{.ProjectName}}/models"
 	"{{.ProjectName}}/pkg/runtime"
 )
+
+// max{{.Entity}}Body caps request bodies for the {{.Table}} API.
+const max{{.Entity}}Body = 1 << 20
 
 func write{{.Entity}}JSON(w http.ResponseWriter, status int, body any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -421,29 +493,109 @@ func write{{.Entity}}JSON(w http.ResponseWriter, status int, body any) {
 	_ = json.NewEncoder(w).Encode(body)
 }
 
-// register{{.Entity}}Routes mounts the JSON API for {{.Table}}.
+// write{{.Entity}}Error maps repository errors to HTTP responses without
+// leaking internal details to the client.
+func write{{.Entity}}Error(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, sql.ErrNoRows) {
+		write{{.Entity}}JSON(w, http.StatusNotFound, map[string]string{"error": "{{.EntityLower}} not found"})
+		return
+	}
+	slog.ErrorContext(r.Context(), "{{.Table}} request failed", "method", r.Method, "path", r.URL.Path, "error", err)
+	write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+}
+
+// decode{{.Entity}}Input reads exactly one JSON object of known fields.
+func decode{{.Entity}}Input(w http.ResponseWriter, r *http.Request) (models.{{.Entity}}Input, bool) {
+	var in models.{{.Entity}}Input
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, max{{.Entity}}Body))
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&in)
+	if err == nil && decoder.Decode(&struct{}{}) != io.EOF {
+		err = errors.New("request body must contain a single JSON object")
+	}
+	if err != nil {
+		status := http.StatusBadRequest
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			status = http.StatusRequestEntityTooLarge
+		}
+		write{{.Entity}}JSON(w, status, map[string]string{"error": err.Error()})
+		return in, false
+	}
+	return in, true
+}
+
+func parse{{.Entity}}ID(w http.ResponseWriter, r *http.Request) (uint64, bool) {
+	id, err := strconv.ParseUint(runtime.PathValue(r, "id"), 10, 63)
+	if err != nil || id == 0 {
+		write{{.Entity}}JSON(w, http.StatusBadRequest, map[string]string{"error": "invalid {{.EntityLower}} id"})
+		return 0, false
+	}
+	return id, true
+}
+
+// register{{.Entity}}Routes mounts the JSON API for {{.Table}}:
+// GET/POST /api/{{.Table}} and GET/PUT/DELETE /api/{{.Table}}/{id}.
 func register{{.Entity}}Routes(registrar runtime.Registrar, db *sql.DB) {
 	repo := database.New{{.Entity}}Repository(db)
 	registrar.Handle(http.MethodGet, "/api/{{.Table}}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		items, err := repo.List(r.Context())
 		if err != nil {
-			write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			write{{.Entity}}Error(w, r, err)
 			return
 		}
 		write{{.Entity}}JSON(w, http.StatusOK, items)
 	}))
 	registrar.Handle(http.MethodPost, "/api/{{.Table}}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		var item models.{{.Entity}}
-		if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
-			write{{.Entity}}JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		in, ok := decode{{.Entity}}Input(w, r)
+		if !ok {
 			return
 		}
-		created, err := repo.Create(r.Context(), item)
+		created, err := repo.Create(r.Context(), in)
 		if err != nil {
-			write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			write{{.Entity}}Error(w, r, err)
 			return
 		}
 		write{{.Entity}}JSON(w, http.StatusCreated, created)
+	}))
+	registrar.Handle(http.MethodGet, "/api/{{.Table}}/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := parse{{.Entity}}ID(w, r)
+		if !ok {
+			return
+		}
+		item, err := repo.Get(r.Context(), id)
+		if err != nil {
+			write{{.Entity}}Error(w, r, err)
+			return
+		}
+		write{{.Entity}}JSON(w, http.StatusOK, item)
+	}))
+	registrar.Handle(http.MethodPut, "/api/{{.Table}}/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := parse{{.Entity}}ID(w, r)
+		if !ok {
+			return
+		}
+		in, ok := decode{{.Entity}}Input(w, r)
+		if !ok {
+			return
+		}
+		updated, err := repo.Update(r.Context(), id, in)
+		if err != nil {
+			write{{.Entity}}Error(w, r, err)
+			return
+		}
+		write{{.Entity}}JSON(w, http.StatusOK, updated)
+	}))
+	registrar.Handle(http.MethodDelete, "/api/{{.Table}}/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id, ok := parse{{.Entity}}ID(w, r)
+		if !ok {
+			return
+		}
+		if err := repo.Delete(r.Context(), id); err != nil {
+			write{{.Entity}}Error(w, r, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}))
 }
 `
@@ -460,6 +612,7 @@ const crudRepositoryTestTemplate = `package database
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"testing"
 
 	"{{.ProjectName}}/models"
@@ -480,20 +633,26 @@ func open{{.Entity}}TestDB(t *testing.T) *sql.DB {
 	return db
 }
 
+func new{{.Entity}}TestInput() models.{{.Entity}}Input {
+	return models.{{.Entity}}Input{
+{{range .Fields}}		{{.Exported}}: {{.TestValue}},
+{{end}}	}
+}
+
 func TestNew{{.Entity}}RepositoryCreateAndList(t *testing.T) {
 	db := open{{.Entity}}TestDB(t)
 	repo := New{{.Entity}}Repository(db)
 	ctx := context.Background()
 
-	item := models.{{.Entity}}{
-{{range .Fields}}		{{.Exported}}: {{.TestValue}},
-{{end}}	}
-	created, err := repo.Create(ctx, item)
+	created, err := repo.Create(ctx, new{{.Entity}}TestInput())
 	if err != nil {
 		t.Fatalf("Create failed: %v", err)
 	}
 	if created.ID == 0 {
 		t.Fatal("expected Create to assign a non-zero ID")
+	}
+	if created.CreatedAt.IsZero() {
+		t.Fatal("expected Create to return the stored created_at")
 	}
 
 	items, err := repo.List(ctx)
@@ -503,8 +662,40 @@ func TestNew{{.Entity}}RepositoryCreateAndList(t *testing.T) {
 	if len(items) != 1 {
 		t.Fatalf("expected 1 {{.EntityLower}}, got %d", len(items))
 	}
-	if items[0].ID != created.ID {
-		t.Fatalf("expected listed {{.EntityLower}} ID %d, got %d", created.ID, items[0].ID)
+	if items[0].ID != created.ID || !items[0].CreatedAt.Equal(created.CreatedAt) {
+		t.Fatalf("listed {{.EntityLower}} = %+v, want %+v", items[0], created)
+	}
+}
+
+func TestNew{{.Entity}}RepositoryGetUpdateDelete(t *testing.T) {
+	db := open{{.Entity}}TestDB(t)
+	repo := New{{.Entity}}Repository(db)
+	ctx := context.Background()
+
+	created, err := repo.Create(ctx, new{{.Entity}}TestInput())
+	if err != nil {
+		t.Fatalf("Create failed: %v", err)
+	}
+	got, err := repo.Get(ctx, created.ID)
+	if err != nil || got.ID != created.ID {
+		t.Fatalf("Get = %+v, %v; want ID %d", got, err, created.ID)
+	}
+	updated, err := repo.Update(ctx, created.ID, new{{.Entity}}TestInput())
+	if err != nil || updated.ID != created.ID {
+		t.Fatalf("Update = %+v, %v; want ID %d", updated, err, created.ID)
+	}
+	if err := repo.Delete(ctx, created.ID); err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	if _, err := repo.Get(ctx, created.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("Get after Delete error = %v, want sql.ErrNoRows", err)
+	}
+	if _, err := repo.Update(ctx, created.ID, new{{.Entity}}TestInput()); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("Update of a missing row error = %v, want sql.ErrNoRows", err)
+	}
+	if err := repo.Delete(ctx, created.ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("Delete of a missing row error = %v, want sql.ErrNoRows", err)
 	}
 }
 `
@@ -515,8 +706,10 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"{{.ProjectName}}/pkg/runtime"
@@ -537,27 +730,40 @@ func open{{.Entity}}HandlerTestDB(t *testing.T) *sql.DB {
 	return db
 }
 
-func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
-	db := open{{.Entity}}HandlerTestDB(t)
+func new{{.Entity}}RouteTestServer(t *testing.T) *runtime.Server {
+	t.Helper()
 	server := runtime.NewServer("")
-	register{{.Entity}}Routes(server, db)
+	register{{.Entity}}Routes(server, open{{.Entity}}HandlerTestDB(t))
+	return server
+}
 
+func serve{{.Entity}}(server *runtime.Server, method, target string, body []byte) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(method, target, bytes.NewReader(body))
+	res := httptest.NewRecorder()
+	server.Handler.ServeHTTP(res, req)
+	return res
+}
+
+func {{.EntityLower}}TestBody(t *testing.T) []byte {
+	t.Helper()
 	body, err := json.Marshal(map[string]any{
 {{range .Fields}}		"{{.Name}}": {{.TestValue}},
 {{end}}	})
 	if err != nil {
 		t.Fatalf("marshal request body: %v", err)
 	}
-	postReq := httptest.NewRequest(http.MethodPost, "/api/{{.Table}}", bytes.NewReader(body))
-	postRes := httptest.NewRecorder()
-	server.Handler.ServeHTTP(postRes, postReq)
+	return body
+}
+
+func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
+	server := new{{.Entity}}RouteTestServer(t)
+
+	postRes := serve{{.Entity}}(server, http.MethodPost, "/api/{{.Table}}", {{.EntityLower}}TestBody(t))
 	if postRes.Code != http.StatusCreated {
 		t.Fatalf("POST /api/{{.Table}} = %d, want %d; body=%s", postRes.Code, http.StatusCreated, postRes.Body.String())
 	}
 
-	getReq := httptest.NewRequest(http.MethodGet, "/api/{{.Table}}", nil)
-	getRes := httptest.NewRecorder()
-	server.Handler.ServeHTTP(getRes, getReq)
+	getRes := serve{{.Entity}}(server, http.MethodGet, "/api/{{.Table}}", nil)
 	if getRes.Code != http.StatusOK {
 		t.Fatalf("GET /api/{{.Table}} = %d, want %d; body=%s", getRes.Code, http.StatusOK, getRes.Body.String())
 	}
@@ -568,6 +774,44 @@ func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
 	}
 	if len(items) != 1 {
 		t.Fatalf("expected 1 {{.EntityLower}}, got %d", len(items))
+	}
+}
+
+func TestRegister{{.Entity}}RoutesItemLifecycle(t *testing.T) {
+	server := new{{.Entity}}RouteTestServer(t)
+
+	postRes := serve{{.Entity}}(server, http.MethodPost, "/api/{{.Table}}", {{.EntityLower}}TestBody(t))
+	var created struct {
+		ID        uint64 ` + "`" + `json:"id"` + "`" + `
+		CreatedAt string ` + "`" + `json:"created_at"` + "`" + `
+	}
+	if err := json.Unmarshal(postRes.Body.Bytes(), &created); err != nil || created.ID == 0 {
+		t.Fatalf("POST response = %s (%v), want a created {{.EntityLower}}", postRes.Body.String(), err)
+	}
+	if strings.HasPrefix(created.CreatedAt, "0001-") {
+		t.Fatalf("POST created_at = %q, want the stored timestamp", created.CreatedAt)
+	}
+	itemPath := fmt.Sprintf("/api/{{.Table}}/%d", created.ID)
+
+	for _, step := range []struct {
+		method, target string
+		body           []byte
+		want           int
+	}{
+		{http.MethodGet, itemPath, nil, http.StatusOK},
+		{http.MethodPut, itemPath, {{.EntityLower}}TestBody(t), http.StatusOK},
+		{http.MethodDelete, itemPath, nil, http.StatusNoContent},
+		{http.MethodGet, itemPath, nil, http.StatusNotFound},
+		{http.MethodPut, itemPath, {{.EntityLower}}TestBody(t), http.StatusNotFound},
+		{http.MethodDelete, itemPath, nil, http.StatusNotFound},
+		{http.MethodGet, "/api/{{.Table}}/not-a-number", nil, http.StatusBadRequest},
+		{http.MethodPost, "/api/{{.Table}}", []byte(` + "`" + `{"id":99}` + "`" + `), http.StatusBadRequest},
+		{http.MethodPost, "/api/{{.Table}}", []byte(` + "`" + `{} {}` + "`" + `), http.StatusBadRequest},
+	} {
+		res := serve{{.Entity}}(server, step.method, step.target, step.body)
+		if res.Code != step.want {
+			t.Fatalf("%s %s = %d, want %d; body=%s", step.method, step.target, res.Code, step.want, res.Body.String())
+		}
 	}
 }
 `

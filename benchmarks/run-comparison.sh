@@ -116,16 +116,9 @@ if [[ -n "$NODE_PID" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-section "Dependency surface (go list -deps, packages pulled in)"
+section "Dependency surface (go list -deps of the shipped binary)"
 # ---------------------------------------------------------------------------
-dep_surface() {
-  local label="$1" pkg="$2" dir="$3" total ext
-  total=$(cd "$dir" && go list -deps "$pkg" | wc -l | tr -d ' ')
-  ext=$(cd "$dir" && go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' "$pkg" | grep -c . || true)
-  printf '  %-34s %5s packages total (%s non-stdlib)\n' "$label" "$total" "$ext"
-}
-dep_surface "FGOTHS runtime" "github.com/WhoseBiasDoYallSeek/fgoths-framework/pkg/runtime" "$ROOT_DIR"
-dep_surface "go-zero rest (full server)" "github.com/zeromicro/go-zero/rest" "$ROOT_DIR/benchmarks/comparison"
+"$ROOT_DIR/benchmarks/run-dep-surface.sh"
 
 # ---------------------------------------------------------------------------
 section "Fixed-rate throughput: GET /users/42 (JSON, param route)"

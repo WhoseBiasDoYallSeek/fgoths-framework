@@ -19,6 +19,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"testing"
 )
@@ -46,6 +47,31 @@ func TestRunVersionOutput(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Errorf("RunVersion output missing %q, got: %s", want, output)
 		}
+	}
+}
+
+func TestRunVersionUsesModuleVersionFromGoInstall(t *testing.T) {
+	replaceHook(t, &Version, "0.0.0-dev")
+	replaceHook(t, &readBuildInfo, func() (*debug.BuildInfo, bool) {
+		return &debug.BuildInfo{Main: debug.Module{Version: "v1.4.0"}}, true
+	})
+
+	orig := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	RunVersion(nil)
+	w.Close()
+	os.Stdout = orig
+
+	var buf bytes.Buffer
+	if _, err := io.Copy(&buf, r); err != nil {
+		t.Fatalf("io.Copy: %v", err)
+	}
+	if !strings.Contains(buf.String(), "version:   1.4.0") {
+		t.Fatalf("RunVersion should report the go install module version, got: %s", buf.String())
 	}
 }
 

@@ -33,7 +33,7 @@ func TestUpgradeDryRunDoesNotModifyProject(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "v1.1.0", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "v1.1.0", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -92,7 +92,7 @@ func TestRunUpgradeDryRunAndApplyFlags(t *testing.T) {
 	if applyErr != nil {
 		t.Fatalf("RunUpgrade --apply error = %v", applyErr)
 	}
-	if !strings.Contains(output, "Runtime upgraded to v1.3.0") {
+	if !strings.Contains(output, "Runtime upgraded to v"+latestRuntimeUpgradeVersion) {
 		t.Fatalf("apply output missing success confirmation: %s", output)
 	}
 	serverAfter, err := os.ReadFile(filepath.Join(root, "pkg/runtime/server.go"))
@@ -119,7 +119,7 @@ func TestRunUpgradeHelp(t *testing.T) {
 
 func TestUpgradeApplyBacksUpAndWritesMetadata(t *testing.T) {
 	root, baseline, targets := newLegacyUpgradeProject(t)
-	report, err := planRuntimeUpgrade(root, "1.1.0", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "1.1.0", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestUpgradeApplyBacksUpAndWritesMetadata(t *testing.T) {
 		if !bytes.Equal(got, targets[relPath]) {
 			t.Errorf("%s was not updated to current runtime", relPath)
 		}
-		backupGlob := filepath.Join(root, ".fgoths", "upgrade-backups", "v1.3.0-*", relPath)
+		backupGlob := filepath.Join(root, ".fgoths", "upgrade-backups", "v"+latestRuntimeUpgradeVersion+"-*", relPath)
 		matches, err := filepath.Glob(backupGlob)
 		if err != nil || len(matches) != 1 {
 			t.Errorf("backup for %s: matches=%v err=%v", relPath, matches, err)
@@ -157,8 +157,8 @@ func TestUpgradeApplyBacksUpAndWritesMetadata(t *testing.T) {
 	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
 		t.Fatal(err)
 	}
-	if manifest.Version != "1.3.0" {
-		t.Errorf("metadata version = %q, want 1.3.0", manifest.Version)
+	if manifest.Version != latestRuntimeUpgradeVersion {
+		t.Errorf("metadata version = %q, want %s", manifest.Version, latestRuntimeUpgradeVersion)
 	}
 	if len(manifest.RuntimeFiles) != len(runtimeUpgradePaths) {
 		t.Errorf("metadata tracks %d runtime files, want %d", len(manifest.RuntimeFiles), len(runtimeUpgradePaths))
@@ -181,7 +181,7 @@ func TestUpgradeMergesNonOverlappingLocalEdit(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, relPath), local, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "1.1.0", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "1.1.0", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestUpgradePreservesOriginalOnMergeConflict(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, relPath), local, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "1.1.0", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "1.1.0", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,10 +258,10 @@ func TestUpgradePreservesOriginalOnMergeConflict(t *testing.T) {
 
 func TestUpgradeRequiresVersionForLegacyProjectAndRejectsUnsupportedVersion(t *testing.T) {
 	root, _, _ := newLegacyUpgradeProject(t)
-	if _, err := planRuntimeUpgrade(root, "", "1.3.0"); err == nil || !strings.Contains(err.Error(), "--from") {
+	if _, err := planRuntimeUpgrade(root, "", latestRuntimeUpgradeVersion); err == nil || !strings.Contains(err.Error(), "--from") {
 		t.Fatalf("missing legacy version error = %v, want --from guidance", err)
 	}
-	if _, err := planRuntimeUpgrade(root, "1.0.0", "1.3.0"); err == nil || !strings.Contains(err.Error(), "unsupported runtime upgrade") {
+	if _, err := planRuntimeUpgrade(root, "1.0.0", latestRuntimeUpgradeVersion); err == nil || !strings.Contains(err.Error(), "unsupported runtime upgrade") {
 		t.Fatalf("unsupported version error = %v", err)
 	}
 }
@@ -275,14 +275,14 @@ func TestUpgradeUsesProjectMetadataVersion(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(metaDir, "upgrade.json"), []byte(`{"framework_version":"1.1.0"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if report.from != "1.1.0" {
 		t.Fatalf("source version = %q, want 1.1.0", report.from)
 	}
-	if _, err := planRuntimeUpgrade(root, "1.0.0", "1.3.0"); err == nil {
+	if _, err := planRuntimeUpgrade(root, "1.0.0", latestRuntimeUpgradeVersion); err == nil {
 		t.Fatal("expected explicit version mismatch to be rejected")
 	}
 }
@@ -300,13 +300,13 @@ func TestUpgradePreservesProjectConfigurationMetadata(t *testing.T) {
 		"database": "sqlite",
 		"features": ["htmx", "jwt-auth"],
 		"runtime_files": {
-			"pkg/runtime/router.go": "preserve-router-hash"
+			"pkg/runtime/requestid.go":"preserve-requestid-hash"
 		}
 	}`)
 	if err := os.WriteFile(filepath.Join(metaDir, "upgrade.json"), originalMetadata, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -321,15 +321,15 @@ func TestUpgradePreservesProjectConfigurationMetadata(t *testing.T) {
 	if err := json.Unmarshal(updatedBytes, &updated); err != nil {
 		t.Fatal(err)
 	}
-	if updated.Version != "1.3.0" ||
+	if updated.Version != latestRuntimeUpgradeVersion ||
 		updated.ProjectType != "ssr" ||
 		updated.Architecture != "mvc" ||
 		updated.Database != "sqlite" ||
 		strings.Join(updated.Features, ",") != "htmx,jwt-auth" ||
-		updated.RuntimeFiles["pkg/runtime/router.go"] != "preserve-router-hash" {
+		updated.RuntimeFiles["pkg/runtime/requestid.go"] != "preserve-requestid-hash" {
 		t.Fatalf("updated metadata lost project configuration: %#v", updated)
 	}
-	matches, err := filepath.Glob(filepath.Join(root, ".fgoths", "upgrade-backups", "v1.3.0-*", ".fgoths", "upgrade.json"))
+	matches, err := filepath.Glob(filepath.Join(root, ".fgoths", "upgrade-backups", "v"+latestRuntimeUpgradeVersion+"-*", ".fgoths", "upgrade.json"))
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("metadata backup matches=%v err=%v", matches, err)
 	}
@@ -353,7 +353,7 @@ func TestUpgradePreservesExistingArtifactIgnoreRules(t *testing.T) {
 	if err := os.WriteFile(ignorePath, original, 0o640); err != nil {
 		t.Fatal(err)
 	}
-	report, err := planRuntimeUpgrade(root, "1.1.0", "1.3.0")
+	report, err := planRuntimeUpgrade(root, "1.1.0", latestRuntimeUpgradeVersion)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -375,7 +375,7 @@ func TestUpgradePreservesExistingArtifactIgnoreRules(t *testing.T) {
 			t.Errorf("updated artifact ignore file is missing %q", rule)
 		}
 	}
-	matches, err := filepath.Glob(filepath.Join(root, ".fgoths", "upgrade-backups", "v1.3.0-*", ".fgoths", ".gitignore"))
+	matches, err := filepath.Glob(filepath.Join(root, ".fgoths", "upgrade-backups", "v"+latestRuntimeUpgradeVersion+"-*", ".fgoths", ".gitignore"))
 	if err != nil || len(matches) != 1 {
 		t.Fatalf("ignore file backup matches=%v err=%v", matches, err)
 	}
@@ -499,9 +499,20 @@ func TestUpgradeFromV120PreservesLocalEditsAndRecordsMetadata(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	targets, err := managedRuntimeSources()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, action := range report.actions {
-		if action.status != "current" {
-			t.Errorf("%s status = %q, want current", action.path, action.status)
+		want := "update"
+		if action.path == edited {
+			want = "merge"
+		}
+		if bytes.Equal(baseline[action.path], targets[action.path]) {
+			want = "current"
+		}
+		if action.status != want {
+			t.Errorf("%s status = %q, want %s", action.path, action.status, want)
 		}
 	}
 	captureStdout(t, func() {
@@ -527,5 +538,46 @@ func TestUpgradeFromV120PreservesLocalEditsAndRecordsMetadata(t *testing.T) {
 	}
 	if manifest.Version != latestRuntimeUpgradeVersion {
 		t.Fatalf("metadata version = %q, want %s", manifest.Version, latestRuntimeUpgradeVersion)
+	}
+}
+
+func TestUpgradeFromV130UpdatesRouterDispatch(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/v130\n\ngo 1.26.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := runtimeUpgradeBaseline("1.3.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, relPath := range runtimeUpgradePaths {
+		path := filepath.Join(root, relPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, baseline[relPath], 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	targets, err := managedRuntimeSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	const router = "pkg/runtime/router.go"
+	if bytes.Equal(baseline[router], targets[router]) {
+		t.Fatal("v1.3.0 router baseline matches the current runtime; the upgrade would be a no-op")
+	}
+	captureStdout(t, func() {
+		err = RunUpgrade([]string{"--from=1.3.0", "--dir=" + root, "--apply"})
+	})
+	if err != nil {
+		t.Fatalf("RunUpgrade --apply error = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, router))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, targets[router]) {
+		t.Fatal("upgrade from v1.3.0 did not install the current router")
 	}
 }

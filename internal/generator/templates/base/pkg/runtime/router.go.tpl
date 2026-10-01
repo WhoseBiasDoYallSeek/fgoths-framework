@@ -20,10 +20,10 @@
 package runtime
 
 import (
-	"context"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"unicode/utf8"
 )
 
@@ -101,6 +101,7 @@ func (r *Router) Handle(method, path string, handler http.Handler) {
 					entry.literals++
 				}
 			}
+			indexParamPattern(path, segments)
 		}
 	}
 	r.routes[method][path] = entry
@@ -138,10 +139,10 @@ func (r *Router) Any(path string, handler http.Handler) {
 	}
 }
 
-// ServeHTTP dispatches a request to the configured route. The matched route
-// metadata (pattern + lazy param match) is injected once per request in a
-// single context value — one allocation total — and read back with PathValue
-// and routePattern. Static routes take the fast path with zero allocations.
+// ServeHTTP dispatches a request to the configured route. Like the standard
+// library's ServeMux, it records the matched pattern in req.Pattern in place,
+// so dispatch never clones the request or allocates a context value. Path
+// parameters are extracted lazily by PathValue from that pattern.
 func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if r == nil {
 		http.NotFound(w, req)
@@ -158,15 +159,10 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		http.NotFound(w, req)
 		return
 	}
-	// A single context carries both the matched pattern (for bounded-
-	// cardinality metrics/logging) and the lazy param match (for PathValue),
-	// so dispatch costs one WithContext instead of two. Static exact-match
-	// routes skip it entirely: the pattern equals the raw path (routePattern
-	// falls back to it) and there are no params to extract — zero context
-	// allocations on the hot static path.
-	if entry.hasParams || pattern != path {
-		req = req.WithContext(context.WithValue(req.Context(), routeInfoKey{}, routeInfo{pattern: pattern, params: paramMatch{entry: entry, path: path}}))
-	}
+	// The pattern serves bounded-cardinality metrics/logging (routePattern)
+	// and lazy parameter extraction (PathValue). Writing it in place matches
+	// net/http.ServeMux and keeps every dispatch allocation-free.
+	req.Pattern = pattern
 	// Apply the middleware chain at dispatch time so the chain is always
 	// the current one, regardless of route/middleware registration order.
 	h := entry.handler
@@ -514,18 +510,6 @@ func paramSegmentName(segment string) (string, bool) {
 	return name, true
 }
 
-// routeInfoKey is the context key under which the matched route metadata
-// (pattern + lazy param match) is stored — a single value per request.
-type routeInfoKey struct{}
-
-// routeInfo bundles the matched route pattern (for bounded-cardinality
-// metrics/logging) and the lazy param match (for PathValue) into one
-// context value, so dispatch costs a single WithContext allocation.
-type routeInfo struct {
-	pattern string
-	params  paramMatch
-}
-
 // routePattern returns the matched route pattern for the request, falling
 // back to the raw path when no route matched (404s) or the pattern is
 // unavailable. Callers that aggregate per route must use this instead of
@@ -534,31 +518,66 @@ func (r *Router) routePattern(req *http.Request) string {
 	if req == nil {
 		return ""
 	}
-	if info, ok := req.Context().Value(routeInfoKey{}).(routeInfo); ok && info.pattern != "" {
-		return info.pattern
+	if req.Pattern != "" {
+		return req.Pattern
 	}
 	return normalizePath(req.URL.Path)
 }
 
-// paramMatch carries the matched route and the request path so PathValue can
-// extract values lazily, without building per-request value collections.
-type paramMatch struct {
-	entry *routeEntry
-	path  string
+// paramPatterns indexes every compiled parameter pattern by its normalized
+// text so PathValue can recover the compiled segments from req.Pattern. The
+// map is copy-on-write: registration (rare) swaps in a new map, while lookups
+// (every PathValue call) are a lock-free atomic load plus a map read. The
+// compiled form depends only on the pattern text, so one entry serves every
+// Router that registers it. Handlers are not retained.
+var paramPatterns = newParamPatternIndex()
+
+type paramPatternIndex struct {
+	mu      sync.Mutex
+	entries atomic.Pointer[map[string]*routeEntry]
+}
+
+func newParamPatternIndex() *paramPatternIndex {
+	idx := &paramPatternIndex{}
+	empty := map[string]*routeEntry{}
+	idx.entries.Store(&empty)
+	return idx
+}
+
+func indexParamPattern(pattern string, segments []routeSegment) {
+	paramPatterns.mu.Lock()
+	defer paramPatterns.mu.Unlock()
+	current := *paramPatterns.entries.Load()
+	if _, ok := current[pattern]; ok {
+		return
+	}
+	next := make(map[string]*routeEntry, len(current)+1)
+	for k, v := range current {
+		next[k] = v
+	}
+	next[pattern] = &routeEntry{segments: segments, hasParams: true}
+	paramPatterns.entries.Store(&next)
 }
 
 // PathValue returns the value of the named path parameter captured by the
 // router for this request (patterns like "/users/{id}" or "/users/:id"), or
-// an empty string when the route has no such parameter.
+// an empty string when the route has no such parameter. Requests routed by
+// net/http.ServeMux fall back to the standard library's Request.PathValue.
 func PathValue(req *http.Request, name string) string {
 	if req == nil {
 		return ""
 	}
-	info, _ := req.Context().Value(routeInfoKey{}).(routeInfo)
-	if info.params.entry == nil {
+	entry, ok := (*paramPatterns.entries.Load())[req.Pattern]
+	if !ok || req.URL == nil {
+		return req.PathValue(name)
+	}
+	path := normalizePath(req.URL.Path)
+	if !entry.matchParams(path) {
+		// The path was rewritten after routing (for example by
+		// http.StripPrefix); never return a value from a different shape.
 		return ""
 	}
-	return info.params.entry.paramValue(info.params.path, name)
+	return entry.paramValue(path, name)
 }
 
 func routeMatches(route, path string) bool {

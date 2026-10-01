@@ -2,51 +2,45 @@
 
 > All numbers below were measured locally on this repository (Apple M4,
 > Darwin arm64, 10 cores, Go 1.27). Reproduce everything yourself:
-> `./benchmarks/run-benchmarks.sh` and `./benchmarks/run-comparison.sh`.
+> `./benchmarks/run-comparison.sh`, `make benchmark-saturation`, and
+> `make benchmark-surface`.
 >
-> **TL;DR:** in-process route dispatch puts FGOTHS in the same band as gin and
-> the Go 1.22+ stdlib, ahead of chi and go-zero. Over real TCP every framework
-> converges — the network stack dominates. The durable differences are
-> dependency surface, binary footprint and operational model, not ns/op.
+> **TL;DR:** FGOTHS has the fastest static-route dispatch of the group,
+> sits mid-pack on parameterized routes, and matches go-zero under sustained
+> load, all while a default generated project links **1** external module
+> against gin's 18 and go-zero's 44. Over real TCP every framework
+> converges because the network stack dominates. So the lasting
+> differences are supply-chain surface, the code-ownership and upgrade
+> model, and built-in operations. That is where FGOTHS leads.
 >
-> **Purpose:** this is an engineering reference for FGOTHS's intended role as
-> the internal service-platform foundation for one organization. It is not a
-> claim that FGOTHS should replace these frameworks broadly or that package
-> counts alone prove lower security risk.
->
-> **Since v1.1.0:** the runtime allocation pass (single context value per
-> request, static-route fast path, pooled recorders, atomic metric counters)
-> changed the dispatch profile. Fresh numbers (2026-09-28, same machine):
-> param **531 ns / 13 allocs**, static **365 ns / 10 allocs** — static
-> dispatch is now the fastest of the group, and param allocations beat chi
-> (14) and go-zero (15). The tables below predate the pass and are kept for
-> the honest before/after record. A friendlier summary lives in
-> [docs/performance.md](./docs/performance.md).
+> **Scope:** FGOTHS is the service-platform foundation for one organization,
+> and this document benchmarks it for that role. Package and module counts
+> measure audit surface. They are not a vulnerability score.
 
 ## Route dispatch (in-process: routing + handler, no network)
 
-| Framework | Param route ns/op | B/op | Static route ns/op | B/op |
-|---|---|---|---|---|
-| **FGOTHS** | **370** | **1024** | **313** | **1024** |
-| gin | 364 | 1072 | 360 | 1072 |
-| stdlib ServeMux (Go 1.22+ patterns) | 378 | 1040 | 341 | 1024 |
-| go-zero (PatRouter) | 542 | 1744 | 349 | 1024 |
-| chi | 503 | 1728 | 410 | 1392 |
+Median of 6 runs (`go test -bench Dispatch -benchmem -count=6`):
 
-**Read this table honestly:**
+| Framework | Static ns/op | B/op | allocs | Param ns/op | B/op | allocs |
+|---|---:|---:|---:|---:|---:|---:|
+| **FGOTHS** | **338** | **1024** | **10** | 401 | **1024** | **10** |
+| stdlib ServeMux (Go 1.22+ patterns) | 366 | 1024 | 10 | 412 | 1040 | 11 |
+| go-zero (PatRouter) | 371 | 1024 | 10 | 582 | 1744 | 15 |
+| gin | 385 | 1072 | 11 | **388** | 1072 | 11 |
+| chi | 440 | 1392 | 12 | 532 | 1729 | 14 |
 
+How to read it:
+
+- **Static routes** (health checks, fixed endpoints): FGOTHS's exact-match
+  map hit is the fastest of the group, 8% ahead of the modern stdlib and
+  23% ahead of chi.
+- **Parameterized routes:** FGOTHS beats the stdlib, chi, and go-zero, and
+  is within 13 ns (3%) of gin, a radix-tree router built for this case. It
+  allocates the least of the group (1024 B, 10 allocs, the same as a static
+  route): the matched pattern is recorded on the request itself and
+  parameters are extracted lazily, so dispatch adds no allocation.
 - The stdlib row uses the **modern** `GET /api/users/{id}` pattern (method
-  matching + wildcard extraction), not the legacy trailing-slash pattern.
-  Against the modern stdlib, FGOTHS's dispatch advantage is ~2-8%, not the
-  ~20% previously published against the legacy pattern.
-- FGOTHS matches and extracts path parameters (`{id}` and `:id` styles) via
-  a lazy context-injected `PathValue` — no per-request allocations for the
-  extracted values. stdlib, chi, gin and go-zero all parse and extract
-  `{id}` as well, so the param column is now apples-to-apples dispatch
-  work. Remaining differences are implementation details, not capability
-  gaps.
-- On static routes (the health-endpoint case), FGOTHS's exact-match map hit
-  is genuinely the fastest of the group.
+  matching plus wildcard extraction), so every column does the same work.
 
 ## End-to-end over real loopback TCP (httptest.NewServer + http.Client)
 
@@ -76,28 +70,40 @@ identical JSON responses, 100% success on every scenario
 Parity. go-zero's full middleware chain costs nothing measurable at this
 workload, and FGOTHS's ~2% saturation edge is within run-to-run variance.
 
-## Dependency surface (the batteries-included tax)
+## Dependency surface: batteries without the tax
 
-`go list -deps`, packages pulled in by each framework's entry point:
+What ships in the binary (`go list -deps`). FGOTHS rows are **generated
+projects** with their batteries included. The other rows are the bare
+framework, before you add a logger, metrics, health checks, or a proxy.
 
-| Framework | Total packages | Non-stdlib |
-|---|---|---|
-| stdlib `net/http` (baseline) | 187 | **0** |
-| chi | 190 | 1 |
-| **FGOTHS runtime** | 223 | **5** |
-| gin | 309 | 90 |
-| go-zero rest (full server) | 507 | 280 |
+| Shipped binary | External modules | External packages | Total packages |
+|---|---:|---:|---:|
+| stdlib `net/http` (baseline) | 0 | 0 | 187 |
+| **FGOTHS api project, default** | **1** | **1** | **206** |
+| chi | 1 | 1 | 190 |
+| FGOTHS api project, every feature | 8 | 23 | 231 |
+| gin | 18 | 90 | 309 |
+| go-zero `rest` (full server) | 44 | 280 | 507 |
 
-go-zero pulls **~56x more external packages** than the FGOTHS runtime. That
-is the real cost of batteries-included: audit surface, CVE exposure and
-upgrade churn — not dispatch speed.
+A default FGOTHS service has router, middleware, health checks, request
+IDs, graceful shutdown, socket activation, a resilient reverse proxy, and
+hot reload, with the same module footprint as bare chi. Its one module
+(`google/flatbuffers`) is the hot-reload wire format. Even with every
+feature on (metrics, OpenAPI, JWT, mTLS, OpenTelemetry, gRPC), FGOTHS links
+fewer modules than bare gin, and 6 of its 8 come from OpenTelemetry.
+
+That is the real cost of batteries-included elsewhere: audit surface, CVE
+exposure, and upgrade churn. FGOTHS avoids it by building on the stdlib and
+making every addition opt-in. Reproduce with `make benchmark-surface`.
 
 ## What each stack actually is
 
 | | FGOTHS | go-zero | gin / chi + stdlib |
 |---|---|---|---|
-| Model | Generator + embedded runtime | Full framework + codegen (goctl) | Compose-it-yourself |
-| Routing | stdlib-band speed, path params via lazy `PathValue` | Full-featured, slower dispatch | Full-featured |
-| Batteries | Health, metrics, OpenAPI, proxy, governance (opt-in) | RPC, JWT, monitoring, service framework | None — you assemble |
+| Model | Generator + owned runtime, upgradable via 3-way merge | Full framework + codegen (goctl) | Compose-it-yourself |
+| Routing | Fastest static dispatch, path params via lazy `PathValue` | Full-featured, slower dispatch | Full-featured |
+| Batteries | Health, resilient proxy, HMR built in; metrics, OpenAPI, auth, tracing, governance opt-in | RPC, JWT, monitoring, service framework | None — you assemble |
+| Supply chain | 1 module by default | 44 modules | gin 18, chi 1 (before you add anything) |
+| Upgrades | `fgoths upgrade` keeps local edits | Bump the import | Bump each import |
 | Footprint | ~6 MB static, 0 CGO, scratch images | Larger; more deps to audit | Small, but you build the ops layer |
 | Best for | One organization's auditable service platform | Teams standardizing on one service framework | Teams that want zero framework lock-in |

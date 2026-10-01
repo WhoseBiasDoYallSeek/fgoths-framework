@@ -18,31 +18,46 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
+	"runtime/debug"
 	"strings"
 	"testing"
+	"time"
 )
 
-func TestFormatComponents(t *testing.T) {
-	output := `go: downloading modules
-"Path": "example.com/foo"
-"Version": "v1.2.3"
-"Path": "example.com/bar"
-`
-	got := formatComponents(output)
-	if !strings.Contains(got, `"name": "example.com/foo"`) {
-		t.Fatalf("expected foo component, got %q", got)
+func TestNewCycloneDXBOMListsLinkedModules(t *testing.T) {
+	info := &debug.BuildInfo{
+		GoVersion: "go1.25.1",
+		Main:      debug.Module{Path: "example.com/app", Version: "(devel)"},
+		Deps: []*debug.Module{
+			{Path: "example.com/lib", Version: "v1.2.3", Sum: "h1:abc="},
+			{Path: "example.com/old", Version: "v0.1.0", Replace: &debug.Module{Path: "example.com/fork", Version: "v0.1.1"}},
+		},
+		Settings: []debug.BuildSetting{{Key: "vcs.revision", Value: "deadbeef"}},
 	}
-	if !strings.Contains(got, `"name": "example.com/bar"`) {
-		t.Fatalf("expected bar component, got %q", got)
-	}
-	if strings.Count(got, "{") != 2 {
-		t.Fatalf("expected exactly 2 components, got %q", got)
-	}
-}
+	bom := newCycloneDXBOM(info, time.Unix(0, 0))
 
-func TestFormatComponentsEmpty(t *testing.T) {
-	if got := formatComponents("no matches here"); got != "" {
-		t.Fatalf("expected empty components list, got %q", got)
+	if bom.SpecVersion != "1.5" || bom.Metadata.Timestamp != "1970-01-01T00:00:00Z" {
+		t.Fatalf("unexpected header: spec=%q timestamp=%q", bom.SpecVersion, bom.Metadata.Timestamp)
+	}
+	app := bom.Metadata.Component
+	if app.Name != "example.com/app" || app.PURL != "pkg:golang/example.com/app" {
+		t.Fatalf("devel builds must omit the purl version, got %+v", app)
+	}
+	wantProps := []cycloneDXProperty{{"golang:toolchain", "go1.25.1"}, {"golang:build:vcs.revision", "deadbeef"}}
+	if !reflect.DeepEqual(app.Properties, wantProps) {
+		t.Fatalf("application properties = %+v, want %+v", app.Properties, wantProps)
+	}
+
+	want := []cycloneDXComponent{
+		{Type: "library", BOMRef: "pkg:golang/stdlib@1.25.1", Name: "stdlib", Version: "go1.25.1", PURL: "pkg:golang/stdlib@1.25.1"},
+		{Type: "library", BOMRef: "pkg:golang/example.com/lib@v1.2.3", Name: "example.com/lib", Version: "v1.2.3", PURL: "pkg:golang/example.com/lib@v1.2.3",
+			Properties: []cycloneDXProperty{{"golang:sum", "h1:abc="}}},
+		{Type: "library", BOMRef: "pkg:golang/example.com/fork@v0.1.1", Name: "example.com/fork", Version: "v0.1.1", PURL: "pkg:golang/example.com/fork@v0.1.1",
+			Properties: []cycloneDXProperty{{"golang:replaces", "example.com/old@v0.1.0"}}},
+	}
+	if !reflect.DeepEqual(bom.Components, want) {
+		t.Fatalf("components = %+v\nwant %+v", bom.Components, want)
 	}
 }
 
@@ -67,12 +82,14 @@ func TestGenerateDockerfile(t *testing.T) {
 }
 
 func TestGenerateSBOM(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test binary: %v", err)
+	}
 	dir := t.TempDir()
+	t.Setenv("SOURCE_DATE_EPOCH", "1700000000")
 	withWorkingDir(t, dir, func() {
-		if err := os.WriteFile("go.mod", []byte("module sbom-test\n\ngo 1.23\n"), 0o644); err != nil {
-			t.Fatalf("write go.mod: %v", err)
-		}
-		if err := generateSBOM(); err != nil {
+		if err := generateSBOM(binary); err != nil {
 			t.Fatalf("generateSBOM failed: %v", err)
 		}
 	})
@@ -81,13 +98,47 @@ func TestGenerateSBOM(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expected sbom.json to be written: %v", err)
 	}
-	var parsed map[string]any
+	var parsed cycloneDXBOM
 	if err := json.Unmarshal(content, &parsed); err != nil {
 		t.Fatalf("expected sbom.json to be valid JSON: %v", err)
 	}
-	if parsed["bomFormat"] != "CycloneDX" {
-		t.Fatalf("expected CycloneDX bomFormat, got %v", parsed["bomFormat"])
+	if parsed.BOMFormat != "CycloneDX" || parsed.Metadata.Timestamp != "2023-11-14T22:13:20Z" {
+		t.Fatalf("unexpected SBOM header: %+v", parsed.Metadata)
 	}
+	if parsed.Metadata.Component.Name != "github.com/WhoseBiasDoYallSeek/fgoths-framework" {
+		t.Fatalf("SBOM must name the main module, got %q", parsed.Metadata.Component.Name)
+	}
+	if len(parsed.Components) == 0 || parsed.Components[0].Name != "stdlib" {
+		t.Fatalf("SBOM must start with the Go stdlib component, got %+v", parsed.Components)
+	}
+}
+
+func TestGenerateSBOMErrors(t *testing.T) {
+	binary, err := os.Executable()
+	if err != nil {
+		t.Fatalf("locate test binary: %v", err)
+	}
+	withWorkingDir(t, t.TempDir(), func() {
+		if err := os.WriteFile("not-a-binary", []byte("text"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := generateSBOM("not-a-binary"); err == nil || !strings.Contains(err.Error(), "read build info") {
+			t.Fatalf("generateSBOM(non-binary) error = %v, want a build info error", err)
+		}
+
+		t.Setenv("SOURCE_DATE_EPOCH", "yesterday")
+		if err := generateSBOM(binary); err == nil || !strings.Contains(err.Error(), "SOURCE_DATE_EPOCH") {
+			t.Fatalf("generateSBOM with a bad SOURCE_DATE_EPOCH error = %v", err)
+		}
+
+		t.Setenv("SOURCE_DATE_EPOCH", "")
+		if err := os.Mkdir("sbom.json", 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := generateSBOM(binary); err == nil {
+			t.Fatal("generateSBOM must report write errors")
+		}
+	})
 }
 
 func TestRunBuildProducesBinaryWithDockerfileAndSBOM(t *testing.T) {

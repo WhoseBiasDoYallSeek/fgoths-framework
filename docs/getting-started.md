@@ -12,14 +12,13 @@ for container images.
 ## 1. Install the CLI
 
 ```bash
-git clone https://github.com/WhoseBiasDoYallSeek/fgoths-framework.git
-cd fgoths-framework
-make build
-./bin/fgoths version        # → 1.3.0
+go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest
+fgoths version              # version: 1.4.0
 ```
 
-To call `fgoths` from anywhere, copy it onto your `PATH`, for example
-`cp bin/fgoths /usr/local/bin/`. The rest of this guide assumes you did.
+This puts `fgoths` in `$(go env GOPATH)/bin`, so make sure that folder is on
+your `PATH`. Prefer a prebuilt, checksum-verified binary or building from
+source? See [Install](../README.md#install).
 
 ---
 
@@ -123,12 +122,16 @@ fgoths generate crud Product name:string price:float64 in_stock:bool
 ```
 
 This creates the model, repository, handler, SQL migration, and tests, and
-registers `GET` and `POST /api/products` for you:
+registers the full resource for you: list, create, read, update, and delete.
 
 ```bash
 curl -X POST localhost:8080/api/products \
   -d '{"name":"Coffee","price":12.5,"in_stock":true}'
 curl localhost:8080/api/products
+curl localhost:8080/api/products/1
+curl -X PUT localhost:8080/api/products/1 \
+  -d '{"name":"Espresso","price":9,"in_stock":true}'
+curl -X DELETE localhost:8080/api/products/1
 ```
 
 Field types: `string`, `bool`, `int`, `int64`, `float64`. Write entity names

@@ -7,8 +7,8 @@ applied to the latest release on `main` only.
 
 | Version | Supported |
 |---|---|
-| 1.3.x (latest) | ✅ |
-| < 1.3.0 | ❌ |
+| 1.4.x (latest) | ✅ |
+| < 1.4.0 | ❌ |
 
 Projects created with an older release receive runtime fixes through
 `fgoths upgrade`. See [Upgrading a project](./docs/upgrading.md).

@@ -56,7 +56,7 @@ func frameworkVersion() string {
 // RunVersion prints the CLI/framework version information.
 func RunVersion(_ []string) {
 	fmt.Println("FGOTHS Framework")
-	fmt.Printf("  version:   %s\n", Version)
+	fmt.Printf("  version:   %s\n", frameworkVersion())
 	fmt.Printf("  commit:    %s\n", Commit)
 	fmt.Printf("  built:     %s\n", BuildDate)
 	fmt.Printf("  go:        %s\n", runtime.Version())

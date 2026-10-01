@@ -327,3 +327,51 @@ func TestValidParamNameRejectsNonASCII(t *testing.T) {
 		}
 	}
 }
+
+func TestPathValueRecordsPatternInPlace(t *testing.T) {
+	r := NewRouter()
+	r.Get("/orders/{oid}", func(w http.ResponseWriter, _ *http.Request) {})
+	req := httptest.NewRequest(http.MethodGet, "/orders/7", nil)
+	r.ServeHTTP(httptest.NewRecorder(), req)
+	// Like net/http.ServeMux, outer middleware observes the matched pattern
+	// on the request it passed in, and PathValue keeps working on it.
+	if req.Pattern != "/orders/{oid}" {
+		t.Fatalf("req.Pattern = %q, want /orders/{oid}", req.Pattern)
+	}
+	if got := PathValue(req, "oid"); got != "7" {
+		t.Fatalf("PathValue after dispatch = %q, want 7", got)
+	}
+}
+
+func TestPathValueFallsBackToServeMux(t *testing.T) {
+	mux := http.NewServeMux()
+	var got string
+	mux.HandleFunc("GET /files/{name}", func(_ http.ResponseWriter, req *http.Request) {
+		got = PathValue(req, "name")
+	})
+	mux.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/files/report.pdf", nil))
+	if got != "report.pdf" {
+		t.Fatalf("PathValue under ServeMux = %q, want report.pdf", got)
+	}
+}
+
+func TestPathValueRejectsRewrittenPath(t *testing.T) {
+	r := NewRouter()
+	var got = "unset"
+	r.Get("/tenants/{tenant}/items", func(w http.ResponseWriter, req *http.Request) {
+		http.StripPrefix("/tenants", http.HandlerFunc(func(_ http.ResponseWriter, inner *http.Request) {
+			got = PathValue(inner, "tenant")
+		})).ServeHTTP(w, req)
+	})
+	r.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/tenants/acme/items", nil))
+	if got != "" {
+		t.Fatalf("PathValue on a rewritten path = %q, want empty", got)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/tenants/acme/items", nil)
+	req.Pattern = "/tenants/{tenant}/items"
+	req.URL = nil
+	if got := PathValue(req, "tenant"); got != "" {
+		t.Fatalf("PathValue without a URL = %q, want empty", got)
+	}
+}

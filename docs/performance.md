@@ -1,9 +1,10 @@
 # Performance
 
-**Short version:** FGOTHS is fast enough that the framework is never your
-bottleneck. Under load, the cost goes to the operating system's network
-stack, JSON, and your database, not to routing. The real gains are a small
-dependency surface and a small binary.
+**Short version:** FGOTHS has the fastest static-route dispatch among the
+stdlib, gin, chi, and go-zero, sustains ~100k req/s on a laptop, and does it
+while linking a single external module. Under load the cost goes to the
+operating system's network stack, JSON, and your database, not to the
+framework.
 
 > All numbers come from one machine: Apple M4, 10 CPUs, macOS arm64,
 > Go 1.27.0. They are recorded results, not guarantees. Run the benchmarks
@@ -55,30 +56,53 @@ round-trips and payload size will.
 
 ## Against other Go frameworks
 
-Routing measured in-process (no network), in ns per request:
+Routing plus handler measured in-process (no network), median ns per
+request over 6 runs:
 
 | | FGOTHS | stdlib | gin | chi | go-zero |
 |---|---:|---:|---:|---:|---:|
-| Path param | 366 | 377 | 359 | 494 | 543 |
-| Static path | 314 | 341 | 357 | 411 | 363 |
+| Static path | **338** | 366 | 385 | 440 | 371 |
+| Path param | 401 | 412 | **388** | 532 | 582 |
 
-Over real TCP, all of them converge to about **28 µs**: the network
-dominates. Full methodology is in [COMPARISON.md](../COMPARISON.md).
+Static routes (health checks, fixed endpoints) are the fastest of the
+group. Parameterized routes beat the stdlib, chi, and go-zero and are
+within 3% of gin, while allocating the least of the group: route dispatch
+itself adds zero allocations. Over real TCP, all of them converge to about
+**28 µs**, so the network dominates. Full methodology is in
+[COMPARISON.md](../COMPARISON.md).
 
 ## Dependency surface
 
-What `go list -deps` pulls into a minimal service:
+What actually ships: the packages and modules linked into the binary
+(`go list -deps`). FGOTHS rows are **generated projects**. The other rows
+are the framework alone, before you add anything to it.
 
-| | Packages | External modules |
-|---|---:|---:|
-| Go stdlib only | 187 | 0 |
-| **FGOTHS** | **223** | **5** |
-| chi | 190 | 1 |
-| gin | 309 | 90 |
-| go-zero | 507 | 280 |
+| Shipped binary | External modules | External packages | Total packages |
+|---|---:|---:|---:|
+| Go stdlib only | 0 | 0 | 187 |
+| **FGOTHS api project, default** | **1** | **1** | **206** |
+| chi | 1 | 1 | 190 |
+| FGOTHS api project, every feature | 8 | 23 | 231 |
+| gin | 18 | 90 | 309 |
+| go-zero `rest` | 44 | 280 | 507 |
 
-Fewer modules means less code to audit and fewer supply-chain entry points.
-This is FGOTHS's main advantage, more than raw speed.
+The default project already has the router, middleware, health checks,
+request IDs, graceful shutdown, socket activation, the resilient proxy, and
+hot reload. Its one module is `github.com/google/flatbuffers`, the hot-reload
+wire format. Dev-only tooling (the file watcher) never reaches the binary.
+
+Everything else is opt-in and shows up in `go.mod`:
+
+| You add | Modules linked |
+|---|---:|
+| `webapp` preset (Templ views) | +1 |
+| `--db=sqlite` (pure-Go driver, no CGO) | +10 |
+| `metrics`, `openapi`, `mtls`, `grpc` | +0 |
+| `jwt-auth` | +1 |
+| `otel` | +6 |
+
+Fewer modules means less code to audit, fewer CVE feeds to watch, and less
+upgrade churn. Reproduce the table with `make benchmark-surface`.
 
 ---
 
@@ -90,6 +114,7 @@ From the framework repository:
 |---|---|---|
 | `make benchmark` | Quick latency and throughput suite | [vegeta](https://github.com/tsenart/vegeta) |
 | `./benchmarks/run-comparison.sh` | FGOTHS vs stdlib, chi, gin, go-zero | Go |
+| `make benchmark-surface` | Dependencies linked into a generated project vs other frameworks | Go |
 | `make benchmark-saturation` | Repeated saturation runs, with CPU and heap profiles | vegeta |
 | `make benchmark-real-app` | Generated SQLite CRUD app, FGOTHS vs `ServeMux` | vegeta |
 | `make check-perf` | Regression guard used before releases | Go |
@@ -113,7 +138,5 @@ loopback only, so it doesn't skew the numbers.
   production network, middleware, or database.
 - Compare runs on the same machine, with the same Go version, on an idle
   system.
-- In-process routing figures were recorded before the v1.1.0 allocation
-  pass. After it, param routes cost ~13 allocs (~500 ns) and static routes
-  ~10 allocs (~360 ns). Allocations went down; timings vary slightly between
-  runs.
+- In-process routing figures move by a few percent between runs. Compare
+  medians of several runs (`-count=6`), not single results.

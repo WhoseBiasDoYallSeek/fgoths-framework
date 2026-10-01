@@ -35,11 +35,14 @@ func TestParseCRUDArgsValid(t *testing.T) {
 	if data.Placeholders != "?1, ?2, ?3" {
 		t.Fatalf("unexpected placeholders: %q", data.Placeholders)
 	}
-	if data.ArgumentList != "item.Name, item.Email, item.Active" {
+	if data.ArgumentList != "in.Name, in.Email, in.Active" {
 		t.Fatalf("unexpected argument list: %q", data.ArgumentList)
 	}
 	if data.ScanArguments != "&item.ID, &item.Name, &item.Email, &item.Active" {
 		t.Fatalf("unexpected scan arguments: %q", data.ScanArguments)
+	}
+	if data.Assignments != "name = ?1, email = ?2, active = ?3" || data.IDPlaceholder != "?4" {
+		t.Fatalf("unexpected update SQL fragments: %q WHERE id = %q", data.Assignments, data.IDPlaceholder)
 	}
 	wantValues := map[string]string{"name": `"test"`, "email": `"test"`, "active": "true"}
 	for _, field := range data.Fields {

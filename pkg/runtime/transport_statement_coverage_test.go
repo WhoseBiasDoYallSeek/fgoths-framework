@@ -130,14 +130,9 @@ func TestTransportCoverageRouteMatcherEdgeCases(t *testing.T) {
 	if got := router.routePattern(req); got != "/raw/path" {
 		t.Errorf("routePattern without a match = %q, want /raw/path", got)
 	}
-	req = req.WithContext(context.WithValue(req.Context(), routeInfoKey{}, routeInfo{pattern: "/items/{id}"}))
+	req.Pattern = "/items/{id}"
 	if got := router.routePattern(req); got != "/items/{id}" {
 		t.Errorf("routePattern with a match = %q, want /items/{id}", got)
-	}
-	req = httptest.NewRequest(http.MethodGet, "/fallback", nil)
-	req = req.WithContext(context.WithValue(req.Context(), routeInfoKey{}, routeInfo{}))
-	if got := router.routePattern(req); got != "/fallback" {
-		t.Errorf("routePattern with empty route metadata = %q, want /fallback", got)
 	}
 
 	if !routeMatches("/api", "/api") {

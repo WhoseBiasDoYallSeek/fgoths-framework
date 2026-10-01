@@ -3,7 +3,7 @@
 ## Overview
 **FGOTHS** (Flatbuffers, Go, Orchestration, Templates, HTMX, SQL/Scratch) is an opinionated, high-performance web framework designed for modular project generation and pure Server-Side Rendering (SSR). The framework combines a generator CLI, architecture presets, and production-oriented generated Go projects into a streamlined DX for mission-critical services.
 
-> Current status (v1.3.0): the generator, presets, and runtime behavior are
+> Current status (v1.4.0): the generator, presets, and runtime behavior are
 > covered by unit, contract, and representative generated-project tests; the
 > generated-project matrix is not exhaustive. Performance benchmarks are
 > reproducible (`benchmarks/run-benchmarks.sh`). The embedded runtime is a
@@ -51,8 +51,10 @@ pkg/runtime/         # FGOTHS runtime
 
 **Principle:** traditional Model-View-Controller, fast to understand and fast
 to prototype. `fgoths generate crud` scaffolds a model, handler, repository,
-migration, and tests. The generated API currently exposes collection-level
-`GET` and `POST` routes; read/update/delete-by-ID routes are not generated.
+migration, and tests. The generated API exposes the full resource
+(`GET`/`POST` on the collection, `GET`/`PUT`/`DELETE` by ID) and decodes
+request bodies into an input type, so database-owned `id` and `created_at`
+cannot be set by clients.
 
 ---
 

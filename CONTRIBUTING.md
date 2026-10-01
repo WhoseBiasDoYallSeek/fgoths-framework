@@ -144,8 +144,13 @@ the previous release. To cut `vX.Y.Z`:
    ```bash
    git tag -a vX.Y.Z -m "vX.Y.Z"
    git push origin main vX.Y.Z
-   gh release create vX.Y.Z --latest --title "vX.Y.Z" --notes-file <notes>
+   make release          # reproducible binaries + SHA256SUMS in dist/
+   gh release create vX.Y.Z dist/* --latest --title "vX.Y.Z" --notes-file <notes>
    ```
+
+   Run `make release` from the clean, tagged commit: the binaries embed the
+   commit hash and commit date, so anyone with the same Go toolchain can
+   rebuild them and get identical checksums.
 
 ---
 

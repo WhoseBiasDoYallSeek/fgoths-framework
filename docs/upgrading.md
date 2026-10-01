@@ -10,13 +10,12 @@ decide to**, and it keeps your local edits.
 ## The short version
 
 ```bash
-cd fgoths-framework
-git pull && make build                         # get the latest CLI
+go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest   # get the latest CLI
 
-./bin/fgoths upgrade --dir=../my-service           # 1. preview
-./bin/fgoths upgrade --dir=../my-service --apply   # 2. apply
+fgoths upgrade --dir=my-service           # 1. preview
+fgoths upgrade --dir=my-service --apply   # 2. apply
 
-cd ../my-service && go test -race ./...            # 3. verify
+cd my-service && go test -race ./...      # 3. verify
 ```
 
 Nothing is written until you pass `--apply`.
@@ -33,7 +32,7 @@ Nothing is written until you pass `--apply`.
 | Older | Not supported. Regenerate the project and move your handlers over. |
 
 ```bash
-./bin/fgoths upgrade --from=1.1.0 --dir=../my-site
+fgoths upgrade --from=1.1.0 --dir=my-site
 ```
 
 If you pass a version FGOTHS doesn't know, it stops instead of guessing.
@@ -43,11 +42,11 @@ If you pass a version FGOTHS doesn't know, it stops instead of guessing.
 ## Reading the preview
 
 ```
-FGOTHS runtime upgrade plan: v1.2.0 -> v1.3.0
+FGOTHS runtime upgrade plan: v1.2.0 -> v1.4.0
   Update pkg/runtime/server.go
   Merge local changes in pkg/runtime/proxy.go
   Conflict in pkg/runtime/metrics.go; original will be preserved
-  Current pkg/runtime/router.go
+  Current pkg/runtime/auth.go
 Dry run only. Re-run with --apply to write safe updates.
 ```
 
@@ -85,7 +84,9 @@ To roll back, copy a file back from `.fgoths/upgrade-backups/`, or use
 
 ## What upgrade does *not* touch
 
-`upgrade` only updates the embedded runtime (`pkg/runtime/`). It never
+`upgrade` only updates the managed runtime files: `server.go`, `router.go`,
+`proxy.go`, `metrics.go`, `hmr/hmr.go`, and `auth.go` (when present) under
+`pkg/runtime/`. It never
 regenerates your handlers, views, models, migrations, routes, `main.go`, or
 configuration. That code is yours.
 

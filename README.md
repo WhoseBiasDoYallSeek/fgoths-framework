@@ -1,67 +1,133 @@
 # FGOTHS
 
-**Generate Go services you can read, audit, and ship as a single binary.**
+**The auditable foundation for resilient Go services.**
 
-`v1.3.0` · Apache 2.0 · Go 1.26+
+`v1.4.0` · Apache 2.0 · Go 1.26+
 
-FGOTHS is a small CLI that creates ready-to-run Go services: JSON APIs or
-server-rendered web apps. Every generated project compiles on day one. It comes
-with health checks, graceful shutdown, hot reload, and a container build, and
-it carries only the dependencies you ask for.
+FGOTHS generates Go services, JSON APIs or server-rendered web apps, that you
+own line by line and can still upgrade. Each one ships as a single static
+binary with health checks, graceful shutdown, a resilient reverse proxy, and
+hot reload built in, while linking exactly **one** external module.
 
-It is the foundation of our internal application platform: one consistent,
-auditable way to start, build, run, and upgrade services. It is deliberately
-not a general-purpose "Rails for Go".
+It is the engine of our internal application platform: every service starts,
+builds, ships, and gets audited the same way.
 
 ```bash
+go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest
+
 fgoths init --name=orders --preset=api
-cd orders && make run          # → http://localhost:8080/health
+cd orders && make dev               # reloads on every save
+
+curl localhost:8080/health          # {"status":"ok"}
 ```
+
+---
+
+## It's just Go
+
+There is no framework to import and nothing hidden. This is the generated
+`main.go`, trimmed, with one endpoint added:
+
+```go
+func main() {
+	server := runtime.NewServer(":8080")
+
+	server.Get("/health", health.Live)
+	server.Get("/orders/{id}", handlers.GetOrder)
+
+	log.Fatal(server.ListenAndServe())
+}
+```
+
+```go
+func GetOrder(w http.ResponseWriter, r *http.Request) {
+	id := runtime.PathValue(r, "id")
+	writeJSON(w, http.StatusOK, map[string]any{"id": id, "status": "pending"})
+}
+```
+
+Handlers are plain `http.HandlerFunc`s. The runtime behind `runtime.NewServer`
+is a few readable files in your project's `pkg/runtime/`, not a dependency.
 
 ---
 
 ## Why FGOTHS
 
-|  |  |
-|---|---|
-| 🔒 **Small supply chain** | The runtime is built on the Go standard library. A full-featured project pulls in **5** external packages; gin pulls in 90 and go-zero 280. |
-| 📦 **One binary** | Static, no CGO, about **6 MB**. Copy it to a server or ship a `FROM scratch` image under 10 MB. |
-| 🛡️ **Resilient by default** | Graceful shutdown, request IDs, and a built-in reverse proxy with retries, circuit breaking, and failover. |
-| 🧩 **You own the code** | Projects are plain Go modules with no framework import to fight. Upgrade the embedded runtime when you choose, without losing your edits. |
-| ⚡ **Fast enough to forget** | About 100k req/s on a laptop. Over a real network FGOTHS performs on par with gin, chi, and the standard library. [See the numbers →](./docs/performance.md) |
-| ✅ **Tested** | 100% statement coverage, race-detector clean, plus tests that compile generated projects. |
+### 1. You own the code, and you still get upgrades
+
+Generators hand you code and walk away. Frameworks keep updating, but you
+can't change them. FGOTHS does both: the runtime lives in your repository,
+and `fgoths upgrade` brings in new versions with a three-way merge that keeps
+your edits.
+
+```text
+$ fgoths upgrade --dir=orders
+FGOTHS runtime upgrade plan: v1.3.0 -> v1.4.0
+  Current pkg/runtime/server.go
+  Merge local changes in pkg/runtime/router.go
+  Current pkg/runtime/proxy.go
+  Current pkg/runtime/metrics.go
+  Current pkg/runtime/hmr/hmr.go
+Dry run only. Re-run with --apply to write safe updates.
+```
+
+Nothing changes until you pass `--apply`, every file is backed up first, and
+a change that can't be merged safely is written as a proposal instead of
+touching your code. → [Upgrade guide](./docs/upgrading.md)
+
+### 2. The smallest supply chain you can audit
+
+A default project links **1** external module (`flatbuffers`, used by hot
+reload). Bare chi also links 1, gin links **18**, and go-zero links **44**,
+and those last two counts are for the framework alone. Every extra module is
+opt-in and visible in `go.mod`. [Measured →](./docs/performance.md#dependency-surface)
+
+The tooling is built to be verified too. `fgoths build --sbom` writes a
+CycloneDX SBOM of exactly what was linked into your binary. The CLI release
+binaries are reproducible, so you can rebuild them from the tag and get the
+same `SHA256SUMS`.
+
+### 3. Resilience without a sidecar
+
+A built-in reverse proxy handles connection pooling, retries, circuit
+breaking, rate limiting, and health-checked failover, without Envoy, a
+service mesh, or CGO. When you need governance, `fgoths controlplane` adds
+versioned policies, release approvals, a deployment ledger, and canary or
+staged rollouts from the same toolchain.
+
+### And it doesn't cost you speed
+
+FGOTHS has the fastest static-route dispatch among stdlib, gin, chi, and
+go-zero. It sustains about 100k req/s on a laptop, matches go-zero under the
+same load, and the binary is a ~6 MB static file. The test suite has 100%
+statement coverage and runs clean under the race detector.
+[See the numbers →](./docs/performance.md)
 
 ---
 
-## Get started
+## Install
 
-**1. Install the CLI**
-
-```bash
-git clone https://github.com/WhoseBiasDoYallSeek/fgoths-framework.git
-cd fgoths-framework
-make build                  # → ./bin/fgoths
-./bin/fgoths version
-```
-
-Optionally, put `bin/fgoths` on your `PATH`. The examples below assume you did.
-
-**2. Create a service**
+**With Go** (you need Go 1.26+ to build projects anyway):
 
 ```bash
-fgoths init --name=orders --preset=api
-cd orders
-make dev                    # runs and reloads on every save
+go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest
+fgoths version
 ```
 
-**3. Try it**
+**Verified binary:** download your platform from the
+[latest release](https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/latest)
+and check it against `SHA256SUMS`:
 
 ```bash
-curl localhost:8080/health
+V=1.4.0 P=darwin_arm64   # or linux_amd64, linux_arm64, darwin_amd64, windows_amd64.exe
+curl -LO https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/download/v$V/fgoths_${V}_$P
+curl -LO https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/download/v$V/SHA256SUMS
+shasum -a 256 -c SHA256SUMS --ignore-missing
+chmod +x fgoths_${V}_$P && sudo mv fgoths_${V}_$P /usr/local/bin/fgoths
 ```
 
-That's it. The [Getting Started guide](./docs/getting-started.md) walks you
-through adding endpoints, a database, pages, and a production build.
+**From source:** `git clone` this repository and run `make build`. The binary
+is written to `./bin/fgoths`.
 
 ---
 
@@ -70,7 +136,7 @@ through adding endpoints, a database, pages, and a production build.
 | Preset | Use it when you need… | You get |
 |---|---|---|
 | **`api`** | A JSON API or service-to-service endpoint | `main.go`, `handlers/`, health checks, runtime |
-| **`webapp`** | Server-rendered pages, with JSON too if you want | MVC layout, [Templ](https://templ.guide) views, HTMX, SQLite |
+| **`webapp`** | Server-rendered pages, with JSON too if you want | MVC layout, [Templ](https://templ.guide) views, HTMX, SQLite, live view updates |
 
 Not sure? Choose `api` for machines and `webapp` for people.
 
@@ -95,20 +161,17 @@ fgoths init --name=billing --preset=api --db=sqlite --features=metrics,openapi,j
 Databases: `sqlite`, `postgres`, `mysql`. Run `fgoths presets` to see
 everything.
 
----
-
 ## Everyday commands
-
-Run these inside a generated project:
 
 | Command | What it does |
 |---|---|
-| `make dev` | Run with hot reload. The browser refreshes on save. |
+| `make dev` | Run with hot reload. Templ views update in the browser on save, no Node toolchain. |
 | `make test` | Run the project's tests |
 | `make build` | Build the static binary into `bin/app` |
-| `make docker-build` | Build a `FROM scratch` container image |
+| `make docker-build` | Build a `FROM scratch` image under 10 MB |
 | `fgoths generate crud Product name:string price:float64` | Scaffold model, handler, repository, migration, and tests (webapp) |
 | `fgoths routes` | List the project's HTTP routes |
+| `fgoths upgrade --dir=. --apply` | Upgrade the embedded runtime and keep your edits |
 
 Shipping can be as simple as:
 
@@ -118,44 +181,21 @@ make build && scp bin/app server:/opt/orders/ && ssh server systemctl restart or
 
 ---
 
-## Keep projects up to date
-
-Each project carries its own copy of the runtime, so a new FGOTHS version
-never changes a project silently. When you want the update, run:
-
-```bash
-fgoths upgrade --dir=../orders            # preview (changes nothing)
-fgoths upgrade --dir=../orders --apply    # apply, with backups
-```
-
-Your local edits are preserved. If a change can't be merged safely, your file
-is left untouched and FGOTHS writes a proposal for you to review. Projects
-created with v1.1.0 or v1.2.0 add `--from=1.1.0` or `--from=1.2.0`.
-→ [Upgrade guide](./docs/upgrading.md)
-
----
-
-## What's inside
-
-- **Runtime**: router with path parameters, middleware, graceful shutdown,
-  request IDs, socket activation, and hot reload in development.
-- **Reverse proxy**: connection pooling, retries, circuit breaker, rate
-  limiting, and health-checked failover. No Envoy, no CGO.
-- **Governance** (optional): a control plane with versioned policies, release
-  approvals, a deployment ledger, and canary or staged rollouts. Run it with
-  `fgoths controlplane`.
-
----
-
 ## Documentation
 
 | Start here | Go deeper |
 |---|---|
-| [Getting Started](./docs/getting-started.md): your first API and web app | [Architecture](./ARCHITECTURE.md): runtime contracts and design |
+| [Getting Started](./docs/getting-started.md): your first API and web app in ten minutes | [Architecture](./ARCHITECTURE.md): runtime contracts and design |
 | [CLI Reference](./docs/cli.md): every command, flag, and feature | [Project Layout](./BOILERPLATE.md): generated structure and data flow |
 | [Upgrading](./docs/upgrading.md): updating existing projects | [Performance](./docs/performance.md): benchmarks and how to reproduce them |
 | [Changelog](./CHANGELOG.md): what changed in each release | [Comparison](./COMPARISON.md): FGOTHS vs gin, chi, go-zero, stdlib |
 | | [Decision records](./docs/adr/): why things are the way they are |
+
+## About the name
+
+**FGOTHS** stands for the stack it is built on: **F**latBuffers, **Go**,
+**O**rchestration, **T**empl, **H**TMX, and **S**QL on **S**cratch, a static
+binary that runs even in an empty container.
 
 ## Contributing
 

@@ -34,8 +34,8 @@ func (w *nopResponseWriter) WriteHeader(int)             {}
 // justify it in the CHANGELOG.
 const (
 	maxAllocsStaticDispatch  = 0 // exact-match static route: no context injection
-	maxAllocsParamDispatch   = 3 // valueCtx + Request clone + routeInfo boxing
-	maxAllocsMetricsDispatch = 4 // param dispatch + metrics (pooled statusRecorder)
+	maxAllocsParamDispatch   = 0 // pattern recorded in place; PathValue is lazy
+	maxAllocsMetricsDispatch = 1 // param dispatch + metrics (pooled statusRecorder)
 )
 
 func newAllocGuardRouter() *Router {

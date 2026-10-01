@@ -69,21 +69,11 @@ section "1/5  Route dispatch comparison: FGOTHS vs stdlib (1.22+ patterns) vs ch
 cd "$ROOT_DIR/benchmarks/comparison"
 go test -bench . -benchmem -benchtime="$BENCH_TIME" -run '^$' | tee "$RESULTS_DIR/1-comparison.txt"
 
-# Dependency surface: total packages pulled in per framework (the
-# batteries-included tax). stdlib is the zero-dependency baseline.
-dep_surface() {
-  local label="$1" pkg="$2" total ext
-  total=$(go list -deps "$pkg" | wc -l | tr -d ' ')
-  ext=$(go list -deps -f '{{if not .Standard}}{{.ImportPath}}{{end}}' "$pkg" | grep -c . || true)
-  printf '  %-34s %5s packages total (%s non-stdlib)\n' "$label" "$total" "$ext"
-}
+# Dependency surface: modules linked into a generated FGOTHS project vs the
+# bare entry point of each framework (the batteries-included tax).
 echo
-echo "Dependency surface (go list -deps, packages pulled in):"
-dep_surface "stdlib net/http (baseline)" "net/http"
-dep_surface "FGOTHS pkg/runtime" "github.com/WhoseBiasDoYallSeek/fgoths-framework/pkg/runtime"
-dep_surface "chi" "github.com/go-chi/chi/v5"
-dep_surface "gin" "github.com/gin-gonic/gin"
-dep_surface "go-zero rest" "github.com/zeromicro/go-zero/rest"
+echo "Dependency surface (go list -deps of the shipped binary):"
+"$ROOT_DIR/benchmarks/run-dep-surface.sh" | tee "$RESULTS_DIR/1-dep-surface.txt"
 
 # ---------------------------------------------------------------------------
 section "2/5  Runtime percentile benchmarks (router + proxy)"

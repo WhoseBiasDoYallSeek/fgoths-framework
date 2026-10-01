@@ -1,7 +1,8 @@
 # CLI Reference
 
-All commands are subcommands of the `fgoths` binary. Build it once from the
-framework repository with `make build`. It is written to `bin/fgoths`.
+All commands are subcommands of the `fgoths` binary. Install it with
+`go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest`
+or see [Install](../README.md#install) for verified binaries and source builds.
 
 ```
 fgoths <command> [options]
@@ -106,11 +107,26 @@ Generated projects run this for you inside `make generate`, `make run`,
 fgoths generate crud Product name:string price:float64 in_stock:bool
 ```
 
-Creates a model, handlers, a migration, and the
+Creates a model, a repository, handlers, tests, a migration, and the
 `RegisterCRUDRoutes(registrar, db)` wiring in `handlers/routes_gen.go`.
-Restart the app and `GET`/`POST /api/products` are live.
+Restart the app and the full resource is live:
 
-Field types: `string`, `int`, `int64`, `float64`, `bool`. Every row also gets `id` and `created_at`.
+| Route | Result |
+|---|---|
+| `GET /api/products` | List rows |
+| `POST /api/products` | Create a row → `201` |
+| `GET /api/products/{id}` | One row, or `404` |
+| `PUT /api/products/{id}` | Replace the fields → `200`, or `404` |
+| `DELETE /api/products/{id}` | `204`, or `404` |
+
+Field types: `string`, `int`, `int64`, `float64`, `bool`. Every row also
+gets `id` and `created_at`, which the database owns: request bodies decode
+into a separate `ProductInput` type, so clients cannot set them.
+
+Handlers are safe by default: bodies are capped at 1 MB (`413` above it),
+unknown fields and trailing data are rejected (`400`), ids must be positive
+integers, and internal errors return a generic `500` while the details go
+to the structured log.
 
 ---
 
@@ -140,9 +156,14 @@ fgoths build --scratch --sbom    # also writes a scratch Dockerfile and sbom.jso
 |---|---|
 | `--out` | Output path. Default: `bin/app` |
 | `--scratch` | Also write a `FROM scratch` Dockerfile |
-| `--sbom` | Also write a Software Bill of Materials (`sbom.json`) |
+| `--sbom` | Also write a CycloneDX 1.5 SBOM (`sbom.json`) |
 
 Binaries are static (`CGO_ENABLED=0`), stripped, and built with `-trimpath`.
+
+The SBOM is read from the module list the Go linker embeds in the binary, so
+it lists exactly what ships: every linked module with its version, `purl`,
+and `go.sum` hash, any `replace` directives, and the Go standard library
+version. Set `SOURCE_DATE_EPOCH` to get a byte-for-byte reproducible file.
 
 ---
 

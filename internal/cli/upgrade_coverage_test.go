@@ -136,10 +136,10 @@ func TestRunUpgradeRejectsInvalidInvocations(t *testing.T) {
 
 func TestRunUpgradeReportsCurrentProject(t *testing.T) {
 	root, _, _ := newLegacyUpgradeProject(t)
-	writeUpgradeTestFile(t, root, ".fgoths/upgrade.json", `{"framework_version":"1.3.0"}`)
+	writeUpgradeTestFile(t, root, ".fgoths/upgrade.json", `{"framework_version":"`+latestRuntimeUpgradeVersion+`"}`)
 	var err error
 	output := captureStdout(t, func() { err = RunUpgrade([]string{"--dir=" + root}) })
-	if err != nil || !strings.Contains(output, "already at v1.3.0") {
+	if err != nil || !strings.Contains(output, "already at v"+latestRuntimeUpgradeVersion) {
 		t.Fatalf("RunUpgrade() error = %v, output = %q", err, output)
 	}
 }
@@ -157,7 +157,7 @@ func TestRunUpgradeApplyFailures(t *testing.T) {
 			return []byte("candidate"), errMergeConflict
 		})
 		wantErrContains(t, runUpgradeQuietly(t, "--dir="+root, "--from=1.1.0", "--apply"), "1 local conflict(s)")
-		candidate, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade-conflicts", "v1.3.0", "pkg", "runtime", "server.go.merge"))
+		candidate, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade-conflicts", "v"+latestRuntimeUpgradeVersion, "pkg", "runtime", "server.go.merge"))
 		if err != nil || string(candidate) != "candidate" {
 			t.Fatalf("merge candidate = %q, err = %v", candidate, err)
 		}

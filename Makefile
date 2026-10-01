@@ -1,6 +1,6 @@
 # Framework version — single source of truth for release builds.
 # Bump this (or override via ldflags) for maintenance releases.
-VERSION ?= 1.3.0
+VERSION ?= 1.4.0
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -12,7 +12,7 @@ LDFLAGS = -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Versio
 print-ldflags:
 	@echo "$(LDFLAGS)"
 
-.PHONY: build test cover benchmark benchmark-quick benchmark-saturation benchmark-real-app version check-templates check-perf print-ldflags clean
+.PHONY: build test cover benchmark benchmark-quick benchmark-saturation benchmark-real-app benchmark-surface version release check-templates check-perf print-ldflags clean
 
 # Compile the CLI locally with version metadata stamped in
 build:
@@ -21,6 +21,10 @@ build:
 # Print the stamped version without building into bin/
 version:
 	@go run -ldflags="$(LDFLAGS)" ./cmd/fgoths version
+
+# Reproducible, static release binaries for every platform plus SHA256SUMS.
+release:
+	VERSION=$(VERSION) ./scripts/release.sh
 
 # Run the full suite with the race detector.
 test:
@@ -49,6 +53,10 @@ benchmark-saturation:
 # Compare generated CRUD traffic on the FGOTHS router and stdlib ServeMux.
 benchmark-real-app:
 	./benchmarks/run-real-app.sh
+
+# Supply-chain surface of a generated project vs other Go frameworks.
+benchmark-surface:
+	./benchmarks/run-dep-surface.sh
 
 # Dispatch allocation regression gate (fails on alloc increase vs baseline)
 check-perf:
