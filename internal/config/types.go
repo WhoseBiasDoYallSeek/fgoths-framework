@@ -27,6 +27,8 @@ type ProjectConfig struct {
 	Architecture ArchPattern
 	Database     DatabaseType
 	Features     []Feature
+	// FrameworkVersion is the FGOTHS CLI version that generated the project.
+	FrameworkVersion string
 }
 
 // ProjectType defines the type of project to generate

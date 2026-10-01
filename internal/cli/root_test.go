@@ -24,7 +24,7 @@ import (
 
 func TestPrintUsage(t *testing.T) {
 	output := captureStdout(t, PrintUsage)
-	for _, want := range []string{"fgoths <command>", "init", "generate", "dev", "build"} {
+	for _, want := range []string{"fgoths <command>", "init", "generate", "dev", "build", "upgrade"} {
 		if !strings.Contains(output, want) {
 			t.Fatalf("expected usage output to mention %q, got %q", want, output)
 		}

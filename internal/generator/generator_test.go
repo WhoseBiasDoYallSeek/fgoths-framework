@@ -15,6 +15,7 @@
 package generator
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,24 @@ func TestProjectRootRejectsInvalidNames(t *testing.T) {
 	}
 	if got, err := projectRoot("my-app", ""); err != nil || got != "my-app" {
 		t.Fatalf("projectRoot(\"my-app\") = (%q, %v), want (my-app, nil)", got, err)
+	}
+}
+
+func TestManagedRuntimeSourcesMatchRuntimeFiles(t *testing.T) {
+	sources, err := ManagedRuntimeSources()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sources) != len(managedRuntimeTemplates) {
+		t.Fatalf("got %d managed sources, want %d", len(sources), len(managedRuntimeTemplates))
+	}
+	for path, source := range sources {
+		if len(source) == 0 {
+			t.Errorf("managed source %s is empty", path)
+		}
+		if strings.Contains(string(source), "{{") {
+			t.Errorf("managed source %s contains an unresolved template directive", path)
+		}
 	}
 }
 
@@ -137,6 +156,40 @@ func TestGenerateCreatesCleanAPIProject(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(cfg.Name, path)); err != nil {
 			t.Errorf("generated project is missing %s: %v", path, err)
 		}
+	}
+}
+
+func TestGenerateRecordsUpgradeMetadataForReleaseBuild(t *testing.T) {
+	withTempWorkingDirectory(t)
+	cfg := config.ProjectConfig{
+		Name:             "versioned-api",
+		Type:             config.TypeAPI,
+		Architecture:     config.ArchFlat,
+		Database:         config.DBNone,
+		FrameworkVersion: "1.2.0",
+	}
+	if err := Generate(cfg); err != nil {
+		t.Fatalf("Generate() error = %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(cfg.Name, ".fgoths", "upgrade.json"))
+	if err != nil {
+		t.Fatalf("read upgrade metadata: %v", err)
+	}
+	var metadata projectUpgradeMetadata
+	if err := json.Unmarshal(data, &metadata); err != nil {
+		t.Fatalf("parse upgrade metadata: %v", err)
+	}
+	if metadata.FrameworkVersion != "1.2.0" {
+		t.Errorf("framework version = %q, want 1.2.0", metadata.FrameworkVersion)
+	}
+	if metadata.ProjectType != config.TypeAPI || metadata.Architecture != config.ArchFlat || metadata.Database != config.DBNone {
+		t.Errorf("metadata project configuration = %#v", metadata)
+	}
+	if _, ok := metadata.RuntimeFiles["pkg/runtime/server.go"]; !ok {
+		t.Fatal("metadata does not track the generated runtime server")
+	}
+	if _, ok := metadata.RuntimeFiles["pkg/runtime/auth.go"]; ok {
+		t.Fatal("metadata tracks JWT runtime although the feature is disabled")
 	}
 }
 

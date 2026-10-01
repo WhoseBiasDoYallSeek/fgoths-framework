@@ -17,6 +17,10 @@ package cli
 import (
 	"fmt"
 	"runtime"
+	"runtime/debug"
+	"strings"
+
+	"github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/generator"
 )
 
 // Version is the framework semver. The default is the development fallback;
@@ -33,6 +37,21 @@ var Commit = "unknown"
 
 // BuildDate is the build timestamp (optional, set via ldflags).
 var BuildDate = "unknown"
+
+var readBuildInfo = debug.ReadBuildInfo
+
+func frameworkVersion() string {
+	if generator.IsReleaseVersion(Version) {
+		return Version
+	}
+	if info, ok := readBuildInfo(); ok {
+		version := strings.TrimPrefix(info.Main.Version, "v")
+		if generator.IsReleaseVersion(version) {
+			return version
+		}
+	}
+	return Version
+}
 
 // RunVersion prints the CLI/framework version information.
 func RunVersion(_ []string) {

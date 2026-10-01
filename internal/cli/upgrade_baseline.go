@@ -1,0 +1,49 @@
+// Copyright (c) 2026, srars-tech
+// SPDX-License-Identifier: Apache-2.0
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+package cli
+
+import (
+	"embed"
+	"fmt"
+	"io/fs"
+)
+
+//go:embed upgrade/baselines/v1.1.0/pkg/runtime
+var upgradeBaselines embed.FS
+
+const latestRuntimeUpgradeVersion = "1.2.0"
+
+var runtimeUpgradePaths = []string{
+	"pkg/runtime/server.go",
+	"pkg/runtime/proxy.go",
+	"pkg/runtime/metrics.go",
+	"pkg/runtime/hmr/hmr.go",
+	"pkg/runtime/auth.go",
+}
+
+func runtimeUpgradeBaseline(version string) (map[string][]byte, error) {
+	if version != "1.1.0" {
+		return nil, fmt.Errorf("no runtime upgrade baseline is available for v%s (supported source: v1.1.0)", version)
+	}
+	baseline := make(map[string][]byte, len(runtimeUpgradePaths))
+	for _, path := range runtimeUpgradePaths {
+		content, err := fs.ReadFile(upgradeBaselines, "upgrade/baselines/v1.1.0/"+path+".txt")
+		if err != nil {
+			return nil, fmt.Errorf("read embedded v1.1.0 baseline for %s: %w", path, err)
+		}
+		baseline[path] = content
+	}
+	return baseline, nil
+}

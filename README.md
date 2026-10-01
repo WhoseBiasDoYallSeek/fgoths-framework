@@ -291,10 +291,45 @@ Everything else is opt-in per project — the generated code is yours to extend.
 Every generated project starts with a compiling application. It includes the
 runtime source files and feature code selected by its configuration; managed
 source/template pairs are checked by the test suite and `make check-templates`.
+Release-generated projects record the framework version and selected project
+configuration in `.fgoths/upgrade.json`.
 
 > **SSR note:** MVC/SSR projects compile `views/*.templ` via the pinned Templ
 > toolchain. Run `make generate` once after `init` (or just use `make run` /
 > `make build`, which depend on it).
+
+### Updating an existing project's runtime
+
+Generated applications embed selected runtime source files instead of
+depending on the FGOTHS module, so installing a newer CLI does not change an
+existing application. `fgoths upgrade` updates the runtime in place. It runs
+as a dry run by default, backs up every file it changes, and uses a three-way
+merge for local edits. If a merge conflicts, the original file stays untouched
+and the proposed merge is written under `.fgoths/upgrade-conflicts/`; the
+backup and conflict directories are ignored by Git, while the upgrade
+metadata is intended to be committed. Upgrades add a dedicated
+`.fgoths/.gitignore` when needed, preserving any existing rules.
+
+Projects created before upgrade metadata was introduced must specify their
+current version. The current migration supports v1.1.0 projects. Use a CLI
+build that includes `upgrade`; while this feature is unreleased, build it from
+the framework checkout with `make build` and invoke that checkout's
+`bin/fgoths`:
+
+```bash
+# Inspect changes without modifying the site.
+/path/to/fgoths-framework/bin/fgoths upgrade --from=1.1.0 --dir=/path/to/my-site
+
+# Apply safe runtime updates and keep backups.
+/path/to/fgoths-framework/bin/fgoths upgrade --from=1.1.0 --dir=/path/to/my-site --apply
+```
+
+This version updates only changed embedded runtime source files; it does not
+regenerate application handlers, route registries, views, migrations, or
+configuration. Git must be installed when a runtime file has local edits.
+Review any conflict candidate, then run `go test -race ./...` in the application
+and its normal build/deploy checks before shipping. The command refuses
+unknown source versions rather than guessing.
 
 ---
 

@@ -16,7 +16,10 @@ package generator
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"go/format"
@@ -42,7 +45,24 @@ var (
 	absoluteTargetPath        = filepath.Abs
 	renderTemplateSource      = renderTemplate
 	formatTemplateSource      = formatTemplateGo
+	marshalUpgradeMetadata    = json.MarshalIndent
 )
+
+var managedRuntimeTemplates = map[string]string{
+	"pkg/runtime/router.go":     "templates/base/pkg/runtime/router.go.tpl",
+	"pkg/runtime/server.go":     "templates/base/pkg/runtime/server.go.tpl",
+	"pkg/runtime/proxy.go":      "templates/base/pkg/runtime/proxy.go.tpl",
+	"pkg/runtime/requestid.go":  "templates/base/pkg/runtime/requestid.go.tpl",
+	"pkg/runtime/metrics.go":    "templates/base/pkg/runtime/metrics.go.tpl",
+	"pkg/runtime/health.go":     "templates/base/pkg/runtime/health.go.tpl",
+	"pkg/runtime/hmr/hmr.go":    "templates/base/pkg/runtime/hmr/hmr.go.tpl",
+	"pkg/runtime/hmr/client.go": "templates/base/pkg/runtime/hmr/client.go.tpl",
+	"pkg/runtime/hmr/codec.go":  "templates/base/pkg/runtime/hmr/codec.go.tpl",
+	"pkg/runtime/auth.go":       "templates/features/jwt-auth/pkg/runtime/auth.go.tpl",
+	"pkg/runtime/otel.go":       "templates/features/otel/pkg/runtime/otel.go.tpl",
+	"pkg/runtime/tls.go":        "templates/features/mtls/pkg/runtime/tls.go.tpl",
+	"pkg/runtime/identity.go":   "templates/features/mtls/pkg/runtime/identity.go.tpl",
+}
 
 // TemplateData holds the data passed to templates
 type TemplateData struct {
@@ -51,6 +71,24 @@ type TemplateData struct {
 	Architecture config.ArchPattern
 	Database     config.DatabaseType
 	Features     map[config.Feature]bool
+}
+
+// ManagedRuntimeSources returns the framework-managed runtime files available
+// to generated projects. The returned bytes are copies from embedded generator
+// templates and are safe for callers to modify.
+func ManagedRuntimeSources() (map[string][]byte, error) {
+	sources := make(map[string][]byte, len(managedRuntimeTemplates))
+	for projectPath, templatePath := range managedRuntimeTemplates {
+		source, err := templatesFS.ReadFile(templatePath)
+		if err != nil {
+			return nil, fmt.Errorf("read managed runtime template %s: %w", templatePath, err)
+		}
+		if strings.Contains(string(source), "{{") {
+			return nil, fmt.Errorf("managed runtime template %s contains unsupported template directives", templatePath)
+		}
+		sources[projectPath] = source
+	}
+	return sources, nil
 }
 
 func (d TemplateData) Has(feature string) bool {
@@ -156,11 +194,83 @@ func Generate(cfg config.ProjectConfig) (err error) {
 		fmt.Printf("  ⚠ Warning: could not rename gitignore: %v\n", err)
 	}
 
+	if err := writeProjectUpgradeMetadata(stagingRoot, cfg); err != nil {
+		return fmt.Errorf("failed to write upgrade metadata: %w", err)
+	}
+
 	if err := finalizeProjectDir(stagingRoot, projectRoot); err != nil {
 		return fmt.Errorf("failed to finalize project generation: %w", err)
 	}
 
 	return nil
+}
+
+type projectUpgradeMetadata struct {
+	FrameworkVersion string              `json:"framework_version"`
+	ProjectType      config.ProjectType  `json:"project_type"`
+	Architecture     config.ArchPattern  `json:"architecture"`
+	Database         config.DatabaseType `json:"database"`
+	Features         []config.Feature    `json:"features"`
+	RuntimeFiles     map[string]string   `json:"runtime_files"`
+}
+
+func writeProjectUpgradeMetadata(projectRoot string, cfg config.ProjectConfig) error {
+	if !IsReleaseVersion(cfg.FrameworkVersion) {
+		return nil
+	}
+	sources, err := ManagedRuntimeSources()
+	if err != nil {
+		return err
+	}
+	hashes := make(map[string]string)
+	for path := range sources {
+		content, err := os.ReadFile(filepath.Join(projectRoot, path))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read generated runtime file %s: %w", path, err)
+		}
+		sum := sha256.Sum256(content)
+		hashes[path] = hex.EncodeToString(sum[:])
+	}
+	metadata, err := marshalUpgradeMetadata(projectUpgradeMetadata{
+		FrameworkVersion: cfg.FrameworkVersion,
+		ProjectType:      cfg.Type,
+		Architecture:     cfg.Architecture,
+		Database:         cfg.Database,
+		Features:         cfg.Features,
+		RuntimeFiles:     hashes,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	metadataDir := filepath.Join(projectRoot, ".fgoths")
+	if err := os.MkdirAll(metadataDir, 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(metadataDir, "upgrade.json"), append(metadata, '\n'), 0o644)
+}
+
+// IsReleaseVersion reports whether version is a plain MAJOR.MINOR.PATCH
+// release, optionally prefixed by "v". Development and prerelease versions
+// are rejected.
+func IsReleaseVersion(version string) bool {
+	parts := strings.Split(strings.TrimPrefix(version, "v"), ".")
+	if len(parts) != 3 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" {
+			return false
+		}
+		for _, digit := range part {
+			if digit < '0' || digit > '9' {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // finalizeProjectDir moves the staging directory into its final location.

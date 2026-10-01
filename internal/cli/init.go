@@ -120,12 +120,13 @@ func RunInit(args []string) error {
 	}
 
 	cfg := config.ProjectConfig{
-		Name:         *name,
-		Dir:          *dir,
-		Type:         p.Type,
-		Architecture: p.Architecture,
-		Database:     p.Database,
-		Features:     features,
+		Name:             *name,
+		Dir:              *dir,
+		Type:             p.Type,
+		Architecture:     p.Architecture,
+		Database:         p.Database,
+		Features:         features,
+		FrameworkVersion: frameworkVersion(),
 	}
 	// Explicit --db wins over the preset default (mirrors the --features
 	// merge behavior).

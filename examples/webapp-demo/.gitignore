@@ -31,3 +31,7 @@ go.work
 *.db-shm
 *.db-wal
 data/
+
+# Runtime upgrade backups and unresolved merge candidates
+.fgoths/upgrade-backups/
+.fgoths/upgrade-conflicts/

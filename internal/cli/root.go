@@ -46,6 +46,12 @@ func Execute() {
 		RunControlPlane(args)
 	case "sync-templates", "sync":
 		RunSyncTemplates(args)
+	case "upgrade":
+		if err := RunUpgrade(args); err != nil {
+			fmt.Printf("❌ Error: %v\n", err)
+			osExit(1)
+			return
+		}
 	case "version", "--version", "-v":
 		RunVersion(args)
 	case "presets", "list-presets", "templates":
@@ -76,6 +82,7 @@ func PrintUsage() {
 	fmt.Println("  " + cyan("generate") + "       " + gray("Compile .templ files (webapp projects)") + "")
 	fmt.Println("  " + cyan("dev") + "            " + gray("Hot reload dev loop with fragment HMR") + "")
 	fmt.Println("  " + cyan("build") + "          " + gray("Compile the static production binary") + "")
+	fmt.Println("  " + cyan("upgrade") + "        " + gray("Safely update an existing project's embedded runtime [--from --dir --apply]") + "")
 	fmt.Println("  " + cyan("version") + "        " + gray("Print framework version") + "")
 	fmt.Println("  " + cyan("controlplane") + "   " + gray("Run governance API [--addr --store --token]") + "")
 	fmt.Println("  " + cyan("sync-templates") + " " + gray("Framework maintainers only: sync pkg/runtime -> templates [--check]") + "")
@@ -95,6 +102,8 @@ func PrintUsage() {
 	fmt.Println("  " + gray("$") + " " + cyan("fgoths init --name=user-service --preset=api"))
 	fmt.Println("  " + gray("$") + " " + cyan("fgoths init --name=my-app --preset=api --db=sqlite --features=metrics,openapi"))
 	fmt.Println("  " + gray("$") + " " + cyan("fgoths init --name=my-site --preset=webapp"))
+	fmt.Println("  " + gray("$") + " " + cyan("fgoths upgrade --from=1.1.0 --dir=../my-site"))
+	fmt.Println("  " + gray("$") + " " + cyan("fgoths upgrade --from=1.1.0 --dir=../my-site --apply"))
 	fmt.Println("  " + gray("$") + " " + cyan("fgoths presets"))
 	fmt.Println()
 }

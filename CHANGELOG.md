@@ -6,6 +6,13 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Added
+- `fgoths upgrade` plans and applies versioned embedded-runtime updates in
+  existing generated projects, records project version/configuration, backs
+  up changed files, and three-way merges non-overlapping local edits while
+  preserving originals on conflicts. It keeps upgrade artifacts out of Git
+  without hiding the project metadata.
+
 ## [1.2.0] - 2026-10-01
 
 ### Fixed

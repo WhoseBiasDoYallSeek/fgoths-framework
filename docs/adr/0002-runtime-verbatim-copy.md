@@ -28,5 +28,15 @@ does not currently commit a CI workflow; external CI can run the same check.
 
 ## Consequences
 * **Positive:** deterministic builds, no module resolution at generation time, trivially auditable runtime, no breaking-change propagation to existing projects.
-* **Negative:** runtime fixes do not automatically reach generated projects. There is no conflict-aware upgrade command; owners must regenerate or manually port desired changes.
-* **Mitigation:** the framework-side `sync-templates --check` reports drift in managed pairs. It is a repository maintenance command, not a downstream-project upgrader.
+* **Negative:** runtime fixes do not automatically reach generated projects.
+* **Mitigation:** release-generated projects record their FGOTHS version and
+  selected configuration in `.fgoths/upgrade.json`. `fgoths upgrade` applies
+  supported runtime source updates in place, backs up changed files, and
+  three-way merges local edits. When changes overlap, the original is
+  preserved and a merge candidate is written for review. A dedicated
+  `.fgoths/.gitignore` keeps backups and conflict candidates out of Git while
+  leaving the upgrade metadata commit-ready. Projects created before metadata
+  was added must provide their source version explicitly. Upgrade support is
+  versioned and deliberately refuses unknown transitions.
+  The framework-side `sync-templates --check` remains a repository
+  maintenance command, not a downstream-project upgrader.
