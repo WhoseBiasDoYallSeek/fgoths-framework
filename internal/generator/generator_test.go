@@ -79,16 +79,9 @@ func TestGenerateSupportsAllArchitecturesAndDatabases(t *testing.T) {
 			if err := Generate(cfg); err != nil {
 				t.Fatalf("Generate() error for architecture %s = %v", arch, err)
 			}
-			// MVC generates a different entry point for SSR-style projects.
 			entry := filepath.Join(cfg.Name, "main.go")
-			if arch == config.ArchMVC {
-				entry = filepath.Join(cfg.Name, "cmd", "web", "main.go")
-			}
 			if _, err := os.Stat(entry); err != nil {
-				t.Logf("architecture %s did not produce %s; checking project root instead", arch, entry)
-				if _, err := os.Stat(cfg.Name); err != nil {
-					t.Fatalf("expected the project directory for architecture %s: %v", arch, err)
-				}
+				t.Fatalf("architecture %s did not produce entry point %s: %v", arch, entry, err)
 			}
 		})
 	}

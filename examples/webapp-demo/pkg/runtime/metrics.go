@@ -161,9 +161,6 @@ func (m *Metrics) Record(method, route string, status int, elapsed ...time.Durat
 		method = http.MethodGet
 	}
 	route = normalizePath(route)
-	if route == "" {
-		route = "/"
-	}
 	var duration time.Duration
 	if len(elapsed) > 0 {
 		duration = elapsed[0]

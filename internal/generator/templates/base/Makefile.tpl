@@ -12,6 +12,8 @@ MAIN:=.
 # intentionally dependency-only and fast: dev HMR calls it on every .templ/.fbs
 # change, so it must not run go mod tidy.
 generate-assets:
+	@echo "🔐 Generating static asset fingerprints..."
+	go run ./cmd/assetmanifest
 	@echo "🧩 Preparing FlatBuffers data files..."
 	@if ! ls schemas/*.fbs >/dev/null 2>&1; then \
 		echo "   No FlatBuffers data files found; skipping."; \

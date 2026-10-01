@@ -9,6 +9,11 @@
 > converges — the network stack dominates. The durable differences are
 > dependency surface, binary footprint and operational model, not ns/op.
 >
+> **Purpose:** this is an engineering reference for FGOTHS's intended role as
+> the internal service-platform foundation for one organization. It is not a
+> claim that FGOTHS should replace these frameworks broadly or that package
+> counts alone prove lower security risk.
+>
 > **v1.1.0 note:** the runtime allocation pass (single context value per
 > request, static-route fast path, pooled recorders, atomic metric counters)
 > changed the dispatch profile. Fresh numbers (2026-09-28, same machine):
@@ -94,5 +99,4 @@ upgrade churn — not dispatch speed.
 | Routing | stdlib-band speed, path params via lazy `PathValue` | Full-featured, slower dispatch | Full-featured |
 | Batteries | Health, metrics, OpenAPI, proxy, governance (opt-in) | RPC, JWT, monitoring, service framework | None — you assemble |
 | Footprint | ~8.8 MB static, 0 CGO, scratch images | Larger; more deps to audit | Small, but you build the ops layer |
-| Best for | Regulated internal services, minimal audit surface | Teams standardizing on one service framework | Teams that want zero framework lock-in |
-
+| Best for | One organization's auditable service platform | Teams standardizing on one service framework | Teams that want zero framework lock-in |

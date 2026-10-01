@@ -21,8 +21,14 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"text/template"
+)
+
+var (
+	renderCRUDSource         = renderCRUDTemplate
+	renderCRUDRegistrySource = renderCRUDRouteRegistry
 )
 
 type crudField struct {
@@ -216,31 +222,31 @@ func writeCRUDFiles(data crudData) error {
 	}
 	handlerTestPath := handlerPath[:len(handlerPath)-len(".go")] + "_test.go"
 	for path, source := range map[string]string{handlerPath: crudHandlerTemplate, handlerTestPath: crudHandlerTestTemplate} {
-		content, err := renderCRUDTemplate(source, data)
+		content, err := renderCRUDSource(source, data)
 		if err != nil {
 			return fmt.Errorf("render %s: %w", path, err)
 		}
-		if err := os.WriteFile(path, content, 0o644); err != nil {
+		if err := osWriteFile(path, content, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
 	}
 
 	for path, source := range files {
-		content, err := renderCRUDTemplate(source, data)
+		content, err := renderCRUDSource(source, data)
 		if err != nil {
 			return fmt.Errorf("render %s: %w", path, err)
 		}
-		if err := os.WriteFile(path, content, 0o644); err != nil {
+		if err := osWriteFile(path, content, 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", path, err)
 		}
 	}
-	return writeCRUDRouteRegistry()
+	return writeCRUDRouteRegistry(data.ProjectName)
 }
 
 // writeCRUDRouteRegistry regenerates handlers/routes_gen.go listing every
 // entity generated so far by scanning the handlers directory. Being fully
 // regenerated (not patched) makes repeated `generate crud` runs idempotent.
-func writeCRUDRouteRegistry() error {
+func writeCRUDRouteRegistry(projectName string) error {
 	entries, err := os.ReadDir("handlers")
 	if err != nil {
 		return fmt.Errorf("scan handlers: %w", err)
@@ -248,10 +254,7 @@ func writeCRUDRouteRegistry() error {
 	var entities []string
 	for _, entry := range entries {
 		name := entry.Name()
-		if entry.IsDir() || !strings.HasSuffix(name, "_handler.go") || strings.HasSuffix(name, "_handler_test.go") {
-			continue
-		}
-		if name == "handlers.go" || name == "routes_gen.go" {
+		if entry.IsDir() || !strings.HasSuffix(name, "_handler.go") {
 			continue
 		}
 		entities = append(entities, exportName(strings.TrimSuffix(name, "_handler.go")))
@@ -263,26 +266,36 @@ package handlers
 
 import (
 	"database/sql"
-	"net/http"
+
+	__RUNTIME_IMPORT__
 )
 
 // RegisterCRUDRoutes mounts every entity generated with ` + "`fgoths generate crud`" + `.
-func RegisterCRUDRoutes(mux *http.ServeMux, db *sql.DB) {
+func RegisterCRUDRoutes(registrar runtime.Registrar, db *sql.DB) {
 	if db == nil {
 		return
 	}
-{{range .}}	register{{.}}Routes(mux, db)
+{{range .}}	register{{.}}Routes(registrar, db)
 {{end}}}
 `
-	var output bytes.Buffer
-	tmpl, err := template.New("routes").Parse(tmplSrc)
+	output, err := renderCRUDRegistrySource(tmplSrc, projectName, entities)
 	if err != nil {
 		return err
 	}
-	if err := tmpl.Execute(&output, entities); err != nil {
-		return err
+	return osWriteFile(filepath.Join("handlers", "routes_gen.go"), output, 0o644)
+}
+
+func renderCRUDRouteRegistry(source, projectName string, entities []string) ([]byte, error) {
+	source = strings.ReplaceAll(source, "__RUNTIME_IMPORT__", strconv.Quote(projectName+"/pkg/runtime"))
+	var output bytes.Buffer
+	tmpl, err := template.New("routes").Parse(source)
+	if err != nil {
+		return nil, err
 	}
-	return os.WriteFile(filepath.Join("handlers", "routes_gen.go"), output.Bytes(), 0o644)
+	if err := tmpl.Execute(&output, entities); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
 }
 
 func renderCRUDTemplate(source string, data crudData) ([]byte, error) {
@@ -399,6 +412,7 @@ import (
 
 	"{{.ProjectName}}/internal/database"
 	"{{.ProjectName}}/models"
+	"{{.ProjectName}}/pkg/runtime"
 )
 
 func write{{.Entity}}JSON(w http.ResponseWriter, status int, body any) {
@@ -408,17 +422,17 @@ func write{{.Entity}}JSON(w http.ResponseWriter, status int, body any) {
 }
 
 // register{{.Entity}}Routes mounts the JSON API for {{.Table}}.
-func register{{.Entity}}Routes(mux *http.ServeMux, db *sql.DB) {
+func register{{.Entity}}Routes(registrar runtime.Registrar, db *sql.DB) {
 	repo := database.New{{.Entity}}Repository(db)
-	mux.HandleFunc("GET /api/{{.Table}}", func(w http.ResponseWriter, r *http.Request) {
+	registrar.Handle(http.MethodGet, "/api/{{.Table}}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		items, err := repo.List(r.Context())
 		if err != nil {
 			write{{.Entity}}JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
 			return
 		}
 		write{{.Entity}}JSON(w, http.StatusOK, items)
-	})
-	mux.HandleFunc("POST /api/{{.Table}}", func(w http.ResponseWriter, r *http.Request) {
+	}))
+	registrar.Handle(http.MethodPost, "/api/{{.Table}}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var item models.{{.Entity}}
 		if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
 			write{{.Entity}}JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
@@ -430,7 +444,7 @@ func register{{.Entity}}Routes(mux *http.ServeMux, db *sql.DB) {
 			return
 		}
 		write{{.Entity}}JSON(w, http.StatusCreated, created)
-	})
+	}))
 }
 `
 
@@ -505,6 +519,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"{{.ProjectName}}/pkg/runtime"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -523,8 +539,8 @@ func open{{.Entity}}HandlerTestDB(t *testing.T) *sql.DB {
 
 func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
 	db := open{{.Entity}}HandlerTestDB(t)
-	mux := http.NewServeMux()
-	register{{.Entity}}Routes(mux, db)
+	server := runtime.NewServer("")
+	register{{.Entity}}Routes(server, db)
 
 	body, err := json.Marshal(map[string]any{
 {{range .Fields}}		"{{.Name}}": {{.TestValue}},
@@ -534,14 +550,14 @@ func TestRegister{{.Entity}}RoutesCreateAndList(t *testing.T) {
 	}
 	postReq := httptest.NewRequest(http.MethodPost, "/api/{{.Table}}", bytes.NewReader(body))
 	postRes := httptest.NewRecorder()
-	mux.ServeHTTP(postRes, postReq)
+	server.Handler.ServeHTTP(postRes, postReq)
 	if postRes.Code != http.StatusCreated {
 		t.Fatalf("POST /api/{{.Table}} = %d, want %d; body=%s", postRes.Code, http.StatusCreated, postRes.Body.String())
 	}
 
 	getReq := httptest.NewRequest(http.MethodGet, "/api/{{.Table}}", nil)
 	getRes := httptest.NewRecorder()
-	mux.ServeHTTP(getRes, getReq)
+	server.Handler.ServeHTTP(getRes, getReq)
 	if getRes.Code != http.StatusOK {
 		t.Fatalf("GET /api/{{.Table}} = %d, want %d; body=%s", getRes.Code, http.StatusOK, getRes.Body.String())
 	}

@@ -61,7 +61,8 @@ func RunBuild(args []string) {
 
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("Build failed: %v\n", err)
-		os.Exit(1)
+		osExit(1)
+		return
 	}
 
 	if stat, err := os.Stat(*output); err == nil {

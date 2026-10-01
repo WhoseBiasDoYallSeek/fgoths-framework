@@ -114,6 +114,39 @@ func TestServerPostAndAnyDelegateToRouter(t *testing.T) {
 	}
 }
 
+func TestServerHTTPMethodDelegates(t *testing.T) {
+	s := NewServer(":0")
+	cases := []struct {
+		method string
+		path   string
+		add    func(string, http.HandlerFunc)
+	}{
+		{http.MethodGet, "/get", s.Get},
+		{http.MethodPost, "/post", s.Post},
+		{http.MethodPut, "/put", s.Put},
+		{http.MethodPatch, "/patch", s.Patch},
+		{http.MethodDelete, "/delete", s.Delete},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.method, func(t *testing.T) {
+			tc.add(tc.path, func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != tc.method {
+					t.Errorf("handler received method %q, want %q", r.Method, tc.method)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+
+			req := httptest.NewRequest(tc.method, tc.path, nil)
+			res := httptest.NewRecorder()
+			s.Handler.ServeHTTP(res, req)
+			if res.Code != http.StatusNoContent {
+				t.Fatalf("%s: got status %d, want %d", tc.method, res.Code, http.StatusNoContent)
+			}
+		})
+	}
+}
+
 func TestProxyCircuitBreakerRecordSuccessResetsFailures(t *testing.T) {
 	cb := newProxyCircuitBreaker(2, time.Minute, 15*time.Second)
 	cb.recordFailure()
@@ -1012,6 +1045,31 @@ func TestServerMiddleware(t *testing.T) {
 	}
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d", res.Code)
+	}
+}
+
+func TestServerMiddlewareRunsInRegistrationOrder(t *testing.T) {
+	server := NewServer(":0")
+	var order []string
+	wrap := func(name string) func(http.Handler) http.Handler {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				order = append(order, name+" before")
+				next.ServeHTTP(w, r)
+				order = append(order, name+" after")
+			})
+		}
+	}
+	server.Use(wrap("first"), wrap("second"))
+	server.Get("/middleware-order", func(http.ResponseWriter, *http.Request) {
+		order = append(order, "handler")
+	})
+
+	server.Handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/middleware-order", nil))
+
+	want := []string{"first before", "second before", "handler", "second after", "first after"}
+	if got := strings.Join(order, "|"); got != strings.Join(want, "|") {
+		t.Fatalf("middleware execution order = %v, want %v", order, want)
 	}
 }
 

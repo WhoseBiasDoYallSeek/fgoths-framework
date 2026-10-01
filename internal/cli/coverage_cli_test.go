@@ -201,10 +201,6 @@ func TestRunSyncTemplatesErrorExits(t *testing.T) {
 // (no real network bind, sandbox-safe) and a synthetic signal channel, then
 // triggers the shutdown path directly.
 func TestRunControlPlaneShutdownOnSignal(t *testing.T) {
-	if testing.Short() {
-		t.Skip("shutdown test skipped in short mode")
-	}
-
 	cp, err := newControlPlaneServer(filepath.Join(t.TempDir(), "ledger.json"), "secret")
 	if err != nil {
 		t.Fatal(err)

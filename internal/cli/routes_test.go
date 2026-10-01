@@ -83,6 +83,48 @@ func x() { mux.HandleFunc("GET /ignored", nil) }
 	})
 }
 
+func TestScanRoutesFindsRuntimeServerAndGeneratedRegistrarRoutes(t *testing.T) {
+	dir := t.TempDir()
+	withWorkingDir(t, dir, func() {
+		source := `package handlers
+
+import "net/http"
+
+func Register(server *Server, registrar Registrar) {
+	server.Put("/items/{id}", nil)
+	server.Patch("/items/{id}", nil)
+	server.Delete("/items/{id}", nil)
+	registrar.Handle(http.MethodGet, "/items", nil)
+}
+`
+		if err := os.WriteFile("routes.go", []byte(source), 0o644); err != nil {
+			t.Fatalf("write routes.go: %v", err)
+		}
+		routes, err := scanRoutes(".")
+		if err != nil {
+			t.Fatalf("scanRoutes failed: %v", err)
+		}
+		if len(routes) != 4 {
+			t.Fatalf("expected 4 runtime routes, got %d: %+v", len(routes), routes)
+		}
+
+		found := make(map[string]bool)
+		for _, route := range routes {
+			found[route.Method+" "+route.Path] = true
+		}
+		for _, want := range []string{
+			"PUT /items/{id}",
+			"PATCH /items/{id}",
+			"DELETE /items/{id}",
+			"GET /items",
+		} {
+			if !found[want] {
+				t.Errorf("route list is missing %q: %+v", want, routes)
+			}
+		}
+	})
+}
+
 func TestRunRoutesRequiresGoMod(t *testing.T) {
 	dir := t.TempDir()
 	withWorkingDir(t, dir, func() {

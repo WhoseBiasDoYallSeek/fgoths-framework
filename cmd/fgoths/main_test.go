@@ -66,3 +66,13 @@ func TestCLISmoke(t *testing.T) {
 		})
 	}
 }
+
+func TestMainDispatchesCommand(t *testing.T) {
+	originalArgs := os.Args
+	os.Args = []string{"fgoths", "version"}
+	t.Cleanup(func() {
+		os.Args = originalArgs
+	})
+
+	main()
+}

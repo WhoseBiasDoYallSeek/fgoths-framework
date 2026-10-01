@@ -1,25 +1,32 @@
-# ADR 0002: Ship the Runtime as a Verbatim Copy in Generated Projects
+# ADR 0002: Embed Selected Runtime Sources in Generated Projects
 
 * **Status:** Accepted
 * **Date:** 2026-09-22
-* **Context:** Generated projects need the FGOTHS runtime (`pkg/runtime`). The two obvious options were (a) depending on the framework as a Go module, or (b) copying the runtime source into each generated project.
+* **Context:** Generated projects need FGOTHS runtime behavior. The two
+  options were (a) depending on the framework as a Go module, or (b) embedding
+  the source needed by the selected preset and features.
 
 ---
 
 ## Decision
-Every generated project receives a **verbatim copy** of `pkg/runtime` under its own `pkg/runtime/` directory. The framework repo enforces fidelity with `fgoths sync-templates --check`, which runs in CI and fails if the embedded templates drift from the tested source.
+Generated projects include the selected runtime sources under their own
+`pkg/runtime/` directory. They do not receive every file in the framework's
+runtime package and do not depend on the framework module. The repository
+maintains an explicit set of managed source/template pairs and verifies them
+with `make check-templates` and `TestRuntimeTemplatesInSync`. This repository
+does not currently commit a CI workflow; external CI can run the same check.
 
 ---
 
 ## Rationale
-1. **No version skew:** a generated project never breaks because the framework published a new release. The code you test today is the code the project runs forever, until the owner explicitly re-syncs.
-2. **Zero dependency surface:** generated projects do not add the framework module to `go.mod`. The runtime's 5 non-stdlib packages (jwt, otel, go-logr — only when features are selected) are the *only* external surface.
+1. **No automatic version skew:** framework releases do not silently change an existing generated project. The project keeps the selected source until its owner updates it.
+2. **No framework module dependency:** generated projects do not add this repository as a Go module dependency. Optional features may add their own external packages.
 3. **Auditability:** teams in regulated industries can read, diff and pin the exact runtime code shipped in their binary without resolving a module graph.
-4. **Single test suite:** the framework's `go test -race -cover ./...` validates the same bytes that land in generated projects — there is no "tested here, runs differently there" gap.
+4. **Verifiable source:** managed source/template pairs are checked for drift, while generated-project integration tests compile representative outputs. The integration matrix is not exhaustive.
 
 ---
 
 ## Consequences
 * **Positive:** deterministic builds, no module resolution at generation time, trivially auditable runtime, no breaking-change propagation to existing projects.
-* **Negative:** runtime fixes do not automatically reach generated projects; users must re-run `fgoths sync-templates` (or regenerate) to pick up fixes. The `--check` mode in CI keeps the framework side honest, but downstream projects are on the user to refresh.
-* **Mitigation:** the CLI prints the runtime version (`fgoths version`) and `sync-templates --check` reports drift, making staleness visible.
+* **Negative:** runtime fixes do not automatically reach generated projects. There is no conflict-aware upgrade command; owners must regenerate or manually port desired changes.
+* **Mitigation:** the framework-side `sync-templates --check` reports drift in managed pairs. It is a repository maintenance command, not a downstream-project upgrader.

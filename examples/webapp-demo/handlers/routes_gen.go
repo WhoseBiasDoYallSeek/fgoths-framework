@@ -4,14 +4,15 @@ package handlers
 
 import (
 	"database/sql"
-	"net/http"
+
+	"webapp-demo/pkg/runtime"
 )
 
 // RegisterCRUDRoutes mounts CRUD endpoints. Empty until you run
 // `fgoths generate crud Entity field:type ...`.
-func RegisterCRUDRoutes(mux *http.ServeMux, db *sql.DB) {
+func RegisterCRUDRoutes(registrar runtime.Registrar, db *sql.DB) {
 	if db == nil {
 		return
 	}
-	// registerEntityRoutes(mux, db)
+	// registerEntityRoutes(registrar, db)
 }

@@ -4,7 +4,9 @@ package main
 
 import (
 	"log"
+{{if or (not (.Has "health")) (.Has "metrics") (.Has "grpc")}}
 	"net/http"
+{{end}}
 	"os"
 
 	"{{.ProjectName}}/handlers"
@@ -32,8 +34,7 @@ func main() {
 		port = "8080"
 	}
 
-	mux := http.NewServeMux()
-
+	server := runtime.NewServer(":" + port)
 {{if .UseSQLite}}
 	db, err := database.Open()
 	if err != nil {
@@ -41,20 +42,20 @@ func main() {
 	}
 	defer db.Close()
 {{if .Has "health"}}
-	mux.HandleFunc("GET /health/ready", health.Ready(db))
+	server.Get("/health/ready", health.Ready(db))
 {{end}}
 {{end}}
 
-	mux.HandleFunc("GET /status", handlers.Status("{{.ProjectName}}"))
+	server.Get("/status", handlers.Status("{{.ProjectName}}"))
 
 {{if .Has "health"}}
-	mux.HandleFunc("GET /health", health.Live)
-	mux.HandleFunc("GET /health/live", health.Live)
+	server.Get("/health", health.Live)
+	server.Get("/health/live", health.Live)
 {{else}}
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	server.Get("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"UP"}`))
+		_, _ = w.Write([]byte(`{"status":"UP"}`))
 	})
 {{end}}
 
@@ -68,20 +69,17 @@ func main() {
 			log.Printf("grpc server stopped: %v", err)
 		}
 	}()
-	mux.Handle("GET /health/grpc", grpcServer.HealthHTTP())
+	server.Handle(http.MethodGet, "/health/grpc", grpcServer.HealthHTTP())
 {{end}}
 
 {{if .Has "openapi"}}
-	mux.HandleFunc("GET /docs", openapi.Docs)
-	mux.HandleFunc("GET /openapi.yaml", openapi.Spec)
+	server.Get("/docs", openapi.Docs)
+	server.Get("/openapi.yaml", openapi.Spec)
 {{end}}
 
-	server := runtime.NewServer(":" + port)
 {{if .Has "metrics"}}
-	mux.Handle("GET /metrics", metrics.Handler(server))
-	server.Handler = metrics.Middleware(server)(mux)
-{{else}}
-	server.Handler = mux
+	server.Handle(http.MethodGet, "/metrics", metrics.Handler(server))
+	server.Use(metrics.Middleware(server))
 {{end}}
 	if os.Getenv("FGOTHS_DEV") == "1" {
 		server = server.WithReusePort().WithHMR()

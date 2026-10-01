@@ -35,8 +35,8 @@ var osIsNotExist = func(err error) bool { return errors.Is(err, os.ErrNotExist) 
 // osExit is a package-level indirection over os.Exit so tests can stub it
 // without actually terminating the test binary. Production code reassigns it
 // to the real os.Exit by default.
-var osExit = func(code int) { os.Exit(code) }
+var osExit = os.Exit
 
-func runtimeCaller(skip int) (pc uintptr, file string, line int, ok bool) {
+var runtimeCaller = func(skip int) (pc uintptr, file string, line int, ok bool) {
 	return runtime.Caller(skip + 1)
 }

@@ -164,6 +164,10 @@ func RequireAccess(policy AccessPolicy) func(http.Handler) http.Handler {
 // An empty secret is refused instead of silently falling back to a known default,
 // since that would let any attacker forge valid tokens.
 func RequireJWT(secret string, policy Policy) func(http.Handler) http.Handler {
+	return requireJWT(secret, policy, jwt.Parse)
+}
+
+func requireJWT(secret string, policy Policy, parseToken func(string, jwt.Keyfunc, ...jwt.ParserOption) (*jwt.Token, error)) func(http.Handler) http.Handler {
 	if secret == "" {
 		return func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -179,7 +183,7 @@ func RequireJWT(secret string, policy Policy) func(http.Handler) http.Handler {
 				return
 			}
 
-			token, err := jwt.Parse(tokenString, func(token *jwt.Token) (any, error) {
+			token, err := parseToken(tokenString, func(token *jwt.Token) (any, error) {
 				if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 					return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 				}
@@ -190,15 +194,10 @@ func RequireJWT(secret string, policy Policy) func(http.Handler) http.Handler {
 				return
 			}
 
-			claims, ok := token.Claims.(jwt.MapClaims)
+			claimMap, ok := jwtClaimsMap(token.Claims)
 			if !ok {
 				http.Error(w, "invalid claims", http.StatusUnauthorized)
 				return
-			}
-
-			claimMap := make(map[string]any, len(claims))
-			for key, value := range claims {
-				claimMap[key] = value
 			}
 			if err := policy.Check(claimMap); err != nil {
 				http.Error(w, err.Error(), http.StatusForbidden)
@@ -209,6 +208,18 @@ func RequireJWT(secret string, policy Policy) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+func jwtClaimsMap(claims jwt.Claims) (map[string]any, bool) {
+	mapClaims, ok := claims.(jwt.MapClaims)
+	if !ok {
+		return nil, false
+	}
+	claimMap := make(map[string]any, len(mapClaims))
+	for key, value := range mapClaims {
+		claimMap[key] = value
+	}
+	return claimMap, true
 }
 
 func bearerToken(r *http.Request) (string, error) {

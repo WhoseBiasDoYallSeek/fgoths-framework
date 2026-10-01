@@ -257,6 +257,21 @@ func TestRunGenerateCRUDGeneratesFiles(t *testing.T) {
 		if !strings.Contains(string(handlerContent), "TestRegisterUserRoutesCreateAndList") {
 			t.Fatalf("expected generated handler test function, got %q", handlerContent)
 		}
+		routesContent, err := os.ReadFile(filepath.Join("handlers", "routes_gen.go"))
+		if err != nil {
+			t.Fatalf("expected generated route registry: %v", err)
+		}
+		if !strings.Contains(string(routesContent), "runtime.Registrar") ||
+			!strings.Contains(string(routesContent), "registerUserRoutes(registrar, db)") {
+			t.Fatalf("expected generated routes to use the runtime registrar, got %q", routesContent)
+		}
+		generatedHandler, err := os.ReadFile(filepath.Join("handlers", "user_handler.go"))
+		if err != nil {
+			t.Fatalf("expected generated CRUD handler: %v", err)
+		}
+		if !strings.Contains(string(generatedHandler), "registrar.Handle(http.MethodPost") {
+			t.Fatalf("expected CRUD handlers to register through the registrar, got %q", generatedHandler)
+		}
 	})
 }
 

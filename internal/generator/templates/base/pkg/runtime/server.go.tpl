@@ -44,6 +44,12 @@ type Server struct {
 	injectedListener net.Listener
 }
 
+// Registrar registers an HTTP handler for a method and route pattern.
+// It is implemented by Server and can be used by generated route registries.
+type Registrar interface {
+	Handle(method, path string, handler http.Handler)
+}
+
 // defaultReadHeaderTimeout bounds how long a client may take to send request
 // headers, closing the Slowloris vector (a client trickling headers to hold a
 // connection open indefinitely). It only covers the header phase, so
@@ -177,6 +183,21 @@ func (s *Server) Post(path string, handler http.HandlerFunc) {
 	s.Handle(http.MethodPost, path, handler)
 }
 
+// Put delegates to the internal router.
+func (s *Server) Put(path string, handler http.HandlerFunc) {
+	s.Handle(http.MethodPut, path, handler)
+}
+
+// Patch delegates to the internal router.
+func (s *Server) Patch(path string, handler http.HandlerFunc) {
+	s.Handle(http.MethodPatch, path, handler)
+}
+
+// Delete delegates to the internal router.
+func (s *Server) Delete(path string, handler http.HandlerFunc) {
+	s.Handle(http.MethodDelete, path, handler)
+}
+
 // HandleFunc registers a handler by method and path.
 func (s *Server) HandleFunc(method, path string, handler http.HandlerFunc) {
 	s.Handle(method, path, handler)
@@ -255,6 +276,11 @@ func (s *Server) listen() (net.Listener, error) {
 	if !s.reusePort {
 		return net.Listen("tcp", s.Addr)
 	}
+	lc := reusePortListenConfig()
+	return lc.Listen(context.Background(), "tcp", s.Addr)
+}
+
+func reusePortListenConfig() net.ListenConfig {
 	var lc net.ListenConfig
 	lc.Control = func(network, address string, c syscall.RawConn) error {
 		var opErr error
@@ -266,7 +292,7 @@ func (s *Server) listen() (net.Listener, error) {
 		}
 		return opErr
 	}
-	return lc.Listen(context.Background(), "tcp", s.Addr)
+	return lc
 }
 
 // ListenAndServe serves on the configured address, binding with

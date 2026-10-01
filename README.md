@@ -1,26 +1,55 @@
 # FGOTHS Framework
 
-> **The auditable batteries-included framework for Go microservices**
+> **An auditable Go toolkit for building your organization's services**
 >
-> `v1.1.0` · Apache 2.0 · Go 1.26+
+> `v1.2.0` · Apache 2.0 · Go 1.26+
 
-**FGOTHS** (*FOR THE GOTH STACK*) is a modular Go scaffolding toolkit with an--
-embedded production-ready runtime. Pick a project type, architecture, database
+**FGOTHS** (*FOR THE GOTH STACK*) is a modular Go scaffolding toolkit with an
+embedded runtime. Pick a project type, architecture, database
 and optional features — it generates a real, compiling project with
 observability, governance and a minimal footprint.
 
-**Designed for** teams in regulated industries — Fintech, Healthtech, Government,
-and Edge Computing — who need strong auditability, minimal attack surface
-and operational simplicity. *(Not a compliance certification; FGOTHS
-architecture supports compliance and audit workflows.)*
+FGOTHS is the service-generation and embedded-runtime foundation for one
+organization's application platform. It standardizes how that organization
+creates, audits, deploys, and operates its services; it is intentionally not a
+general-purpose Rails-style web framework or a claim of fit for every
+organization. Its small dependency surface and resilience primitives support
+audit workflows, but FGOTHS is not a compliance certification.
 
 | | |
 |---|---|
 | 📦 **Dependencies** | Standard-library runtime; generated projects add only selected features |
-| ⚡ **Throughput** | 103k req/s sustained, 15s saturation (1.55M req, 100% success) |
-| 🎯 **Latency** | p99 = 2.2ms under saturation · 512µs over TCP |
+| ⚡ **Throughput** | 99.91k req/s median, 6 × 15s saturation runs at 150 workers (92.05k–103.75k, 100% success) |
+| 🎯 **Latency** | p99 = 3.00ms median at 150 workers · 686µs p99 TCP guard |
 | 💾 **Footprint** | ~8.8 MB static binary · 0 CGO · scratch images <10MB |
-| 🧪 **Quality** | `go test -race -cover` clean · benchmarks reproducible |
+| 🧪 **Quality** | `make test` (race detector) · `make cover` (100% statement coverage) |
+
+The saturation figure above is a recorded result, not a per-machine guarantee.
+For repeatable local measurements with per-run latency reports and separate
+CPU and heap/mutex/block profiling runs, use `make benchmark-saturation`. Results
+are written to a temporary directory by default; set `RESULTS_DIR=/path/to/dir`
+to retain them at a chosen location. Tune the experiment with
+`SATURATION_RUNS`, `SATURATION_DURATION`, `SATURATION_WARMUP_DURATION`, and
+`SATURATION_WORKERS` (default: 150). Profiling is loopback-only and runs
+separately so its overhead does not affect the clean throughput summary.
+Repeated on Apple M4 (10 logical CPUs, macOS arm64, Go 1.27.0), 150 workers
+measured a median 99.91k req/s and 3.00ms p99 across six runs. At 100 workers,
+eight runs measured 92.08k req/s and 2.26ms p99; 200 workers measured 96.83k
+req/s and 3.96ms p99 across three runs. The 150-worker setting therefore
+improved measured throughput by about 8.5% versus 100 workers, with a roughly
+33% p99 latency increase; tune concurrency to the application's latency
+target rather than treating the highest throughput as universally best.
+
+Profiles attributed most sampled CPU to system calls and the local TCP path;
+request parsing and HTTP header handling dominated allocated bytes. The router
+and health handler were not significant CPU hotspots, so no router or pool
+change is justified by this workload alone. The benchmark primarily measures
+the complete local `net/http` + loopback path, not application middleware,
+database, or production-network performance.
+
+To measure generated SQLite-backed CRUD traffic and compare the FGOTHS router
+with `net/http`'s `ServeMux` using the same handlers and middleware, run
+`make benchmark-real-app`; see [the benchmark app guide](./benchmarks/real-app/README.md).
 
 ---
 
@@ -39,7 +68,7 @@ Full measured comparison against Go batteries-included frameworks:
 
 ### Measured performance, stress tests and edge cases (see [benchmarks/run-benchmarks.sh](./benchmarks/run-benchmarks.sh))
 ```
-A🧪 FGOTHS Benchmark Suite (2026-09-21 19:21)
+FGOTHS Benchmark Suite (2026-09-21 19:21)
    Machine: Darwin arm64, 10 cores
 
 ===================================================================
@@ -211,7 +240,7 @@ scp bin/app server:/opt/app && ssh server "systemctl restart app"
 git clone https://github.com/WhoseBiasDoYallSeek/fgoths-framework.git
 cd fgoths-framework
 make build
-./bin/fgoths version   # → 1.1.0
+./bin/fgoths version   # → 1.2.0
 
 # Create your first API (simplest way)
 ./bin/fgoths init --name=user-service --preset=api
@@ -259,9 +288,9 @@ Everything else is opt-in per project — the generated code is yours to extend.
 ./bin/fgoths presets
 ```
 
-Every generated project ships a compiling, tested application — the embedded
-runtime is byte-identical to the runtime this framework tests (enforced by a
-template drift guard in the test suite and in `make check-templates`).
+Every generated project starts with a compiling application. It includes the
+runtime source files and feature code selected by its configuration; managed
+source/template pairs are checked by the test suite and `make check-templates`.
 
 > **SSR note:** MVC/SSR projects compile `views/*.templ` via the pinned Templ
 > toolchain. Run `make generate` once after `init` (or just use `make run` /
@@ -398,11 +427,22 @@ FGOTHS_CP_TOKEN=secret ./bin/fgoths controlplane --store=sqlite://cp.db
 - SSR MVC project: `/` renders HTML + HTMX (run `make generate` once so the
   pinned Templ toolchain compiles `views/*.templ`; `make run` / `make build`
   depend on it)
-- Full generator matrix validated end-to-end: both layouts (`flat`, `mvc`) x
-  every database option x all project types, plus every feature flag - all
-  generated projects compile
+- Generated projects use the FGOTHS registrar and all five HTTP verb helpers;
+  MVC static assets get deterministic fingerprints, development no-store
+  caching, and browser reloads after CSS, JS, or HTML changes.
+- Generated-project integration tests compile representative flat projects
+  (minimal, health, and health + metrics + OpenAPI + gRPC) and an MVC/SQLite
+  project with generated collection routes. Generator unit tests exercise
+  each supported database option and the supported feature selections; they
+  do not compile every possible combination.
+- `make cover` reports 100% statement coverage for the root module's short-mode
+  test suite. The generated SQLite CRUD benchmark compares identical handlers
+  and middleware on FGOTHS and `net/http`; its recorded runs show overlapping
+  throughput ranges, not a material router advantage.
 - Control plane: survives restarts, auth fails closed, policy rollback works over REST
-- 84k req/s sustained with 100% success under saturation
+- Saturation benchmark: see the repeated 100/150/200-worker measurements above
+  and `make benchmark-saturation` for the reproducible measurement and profiling
+  workflow.
 
 ---
 
@@ -414,9 +454,13 @@ user-service/
 ├── go.mod                  # module + conditional deps
 ├── Makefile                # run / build / generate / test / docker-*
 ├── main.go                 # entrypoint: server, routes, graceful shutdown
+├── cmd/
+│   ├── dev/                # development watcher
+│   └── assetmanifest/      # deterministic static asset fingerprints
 ├── handlers/               # HTTP handlers — add your endpoints here
 ├── internal/database/      # only when --db is set: connection + migrations
-├── pkg/runtime/            # embedded FGOTHS runtime (verbatim copy)
+├── internal/assets/        # asset URL helper and generated manifest
+├── pkg/runtime/            # selected embedded runtime sources
 └── static/css/app.css
 ```
 
@@ -426,11 +470,13 @@ my-site/
 ├── go.mod
 ├── Makefile
 ├── main.go                 # entrypoint
+├── cmd/                    # dev watcher and asset manifest generator
 ├── handlers/               # page handlers + JSON API endpoints
 ├── models/                 # domain entities
 ├── views/                  # Templ components (SSR + HTMX)
 ├── middleware/             # shared middleware (logging, cors)
 ├── internal/database/      # SQLite/Postgres/MySQL connection + repositories
+├── internal/assets/        # asset URL helper and generated manifest
 ├── pkg/runtime/            # embedded FGOTHS runtime
 └── static/
 ```
@@ -448,18 +494,18 @@ my-site/
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | How to contribute |
 | [benchmarks/run-benchmarks.sh](./benchmarks/run-benchmarks.sh) | Reproduce every performance claim |
 | [benchmarks/run-comparison.sh](./benchmarks/run-comparison.sh) | FGOTHS vs go-zero head-to-head over real TCP |
-| [benchmarks/check-perf-regression.sh](./benchmarks/check-perf-regression.sh) | Dispatch allocation regression gate (CI-able) |
+| [benchmarks/check-perf-regression.sh](./benchmarks/check-perf-regression.sh) | Dispatch allocation regression gate |
 
 ---
 
 ## 🔖 Versioning & releases
 
 This project follows [Semantic Versioning](https://semver.org). The current
-release line is **1.1.0**.
+release line is **1.2.0**.
 
 - **Release builds** stamp version metadata at compile time:
   ```bash
-  make build          # VERSION ?= 1.1.0 in the Makefile
+  make build          # VERSION ?= 1.2.0 in the Makefile
   ./bin/fgoths version
   ```
 - **Maintenance updates** only require bumping `VERSION` in the `Makefile`

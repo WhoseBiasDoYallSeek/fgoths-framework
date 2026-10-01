@@ -16,6 +16,11 @@ automatically: it refreshes `go.sum` (`go mod tidy`) and compiles Templ
 templates before starting. **No manual steps needed** — this is the only
 command you need after `fgoths init`.
 
+Static asset URLs in Templ layouts use content fingerprints generated from
+`static/`. Production responses with a matching fingerprint are cacheable;
+development responses disable browser caching and asset changes trigger a
+browser reload.
+
 If you prefer raw Go commands over the Makefile, run the setup once first:
 
 ```bash

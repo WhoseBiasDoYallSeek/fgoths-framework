@@ -33,6 +33,17 @@ import (
 //go:embed all:templates
 var templatesFS embed.FS
 
+var (
+	generateBaseStage         = generateBase
+	generateArchitectureStage = generateArchitecture
+	generateDatabaseStage     = generateDatabase
+	generateFeaturesStage     = generateFeatures
+	renameGeneratedPath       = os.Rename
+	absoluteTargetPath        = filepath.Abs
+	renderTemplateSource      = renderTemplate
+	formatTemplateSource      = formatTemplateGo
+)
+
 // TemplateData holds the data passed to templates
 type TemplateData struct {
 	ProjectName  string
@@ -115,30 +126,30 @@ func Generate(cfg config.ProjectConfig) (err error) {
 	fmt.Println()
 
 	// Generate base files (always)
-	if err := generateBase(stagingRoot, data); err != nil {
+	if err := generateBaseStage(stagingRoot, data); err != nil {
 		return fmt.Errorf("failed to generate base: %w", err)
 	}
 
 	// Generate architecture-specific structure
-	if err := generateArchitecture(stagingRoot, data); err != nil {
+	if err := generateArchitectureStage(stagingRoot, data); err != nil {
 		return fmt.Errorf("failed to generate architecture: %w", err)
 	}
 
 	// Generate database layer
 	if cfg.Database != config.DBNone {
-		if err := generateDatabase(stagingRoot, data); err != nil {
+		if err := generateDatabaseStage(stagingRoot, data); err != nil {
 			return fmt.Errorf("failed to generate database: %w", err)
 		}
 	}
 
 	// Generate optional features
-	if err := generateFeatures(stagingRoot, data); err != nil {
+	if err := generateFeaturesStage(stagingRoot, data); err != nil {
 		return fmt.Errorf("failed to generate features: %w", err)
 	}
 
 	// Rename .gitignore
 	gitignorePath := filepath.Join(stagingRoot, ".gitignore")
-	if err := os.Rename(
+	if err := renameGeneratedPath(
 		filepath.Join(stagingRoot, "gitignore"),
 		gitignorePath,
 	); err != nil && !os.IsNotExist(err) {
@@ -158,7 +169,7 @@ func Generate(cfg config.ProjectConfig) (err error) {
 // that case falls back to a recursive copy followed by removing the staging
 // directory.
 func finalizeProjectDir(stagingRoot, projectRoot string) error {
-	err := os.Rename(stagingRoot, projectRoot)
+	err := renameGeneratedPath(stagingRoot, projectRoot)
 	if err == nil || !errors.Is(err, syscall.EXDEV) {
 		return err
 	}
@@ -174,10 +185,7 @@ func copyDir(src, dst string) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(src, path)
-		if err != nil {
-			return err
-		}
+		rel, _ := filepath.Rel(src, path)
 		target := filepath.Join(dst, rel)
 		if info.IsDir() {
 			return os.MkdirAll(target, info.Mode())
@@ -215,7 +223,7 @@ func projectRoot(name, dir string) (string, error) {
 		return filepath.Clean(name), nil
 	}
 	if !filepath.IsAbs(dir) {
-		abs, err := filepath.Abs(dir)
+		abs, err := absoluteTargetPath(dir)
 		if err != nil {
 			return "", fmt.Errorf("invalid target directory %q: %w", dir, err)
 		}
@@ -232,7 +240,10 @@ func generateBase(projectName string, data TemplateData) error {
 		"templates/base/.dockerignore.tpl",
 		"templates/base/README.md.tpl",
 		"templates/base/gitignore.tpl",
+		"templates/base/cmd/assetmanifest/main.go.tpl",
 		"templates/base/cmd/dev/main.go.tpl",
+		"templates/base/internal/assets/assets.go.tpl",
+		"templates/base/internal/assets/manifest_gen.go.tpl",
 		"templates/base/static/css/app.css.tpl",
 		"templates/base/pkg/runtime/router.go.tpl",
 		"templates/base/pkg/runtime/server.go.tpl",
@@ -327,9 +338,42 @@ func processTemplate(projectName, templatePath string, data TemplateData) error 
 	}
 
 	// Calculate output path
+	relativePath := templateOutputPath(templatePath)
+	targetPath := filepath.Join(projectName, relativePath)
+
+	// Create parent directories
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), err)
+	}
+
+	output, err := renderTemplateSource(templatePath, filepath.Base(templatePath), string(content), data)
+	if err != nil {
+		return err
+	}
+
+	// Conditional template blocks leave blank-line runs and misaligned
+	// declarations behind; gofmt every generated Go file so projects pass
+	// `gofmt -l` out of the box. A formatting failure means the template
+	// rendered invalid Go — surface it now instead of at the user's build.
+	if strings.HasSuffix(targetPath, ".go") {
+		formatted, err := formatTemplateSource(templatePath, output)
+		if err != nil {
+			return err
+		}
+		output = formatted
+	}
+
+	if err := os.WriteFile(targetPath, output, 0o644); err != nil {
+		return fmt.Errorf("failed to create file %s: %w", targetPath, err)
+	}
+
+	fmt.Printf("  ✓ Created %s\n", relativePath)
+	return nil
+}
+
+func templateOutputPath(templatePath string) string {
 	parts := strings.Split(templatePath, "/")
 	var relativePath string
-
 	if len(parts) >= 3 {
 		switch parts[1] {
 		case "base":
@@ -344,43 +388,25 @@ func processTemplate(projectName, templatePath string, data TemplateData) error 
 			relativePath = strings.Join(parts[2:], "/")
 		}
 	}
+	return strings.TrimSuffix(relativePath, ".tpl")
+}
 
-	relativePath = strings.TrimSuffix(relativePath, ".tpl")
-	targetPath := filepath.Join(projectName, relativePath)
-
-	// Create parent directories
-	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", filepath.Dir(targetPath), err)
-	}
-
-	// Parse and execute template
-	tmpl, err := template.New(filepath.Base(templatePath)).Parse(string(content))
+func renderTemplate(templatePath, name, source string, data TemplateData) ([]byte, error) {
+	tmpl, err := template.New(name).Parse(source)
 	if err != nil {
-		return fmt.Errorf("failed to parse template %s: %w", templatePath, err)
+		return nil, fmt.Errorf("failed to parse template %s: %w", templatePath, err)
 	}
-
 	var rendered bytes.Buffer
 	if err := tmpl.Execute(&rendered, data); err != nil {
-		return fmt.Errorf("failed to execute template %s: %w", templatePath, err)
+		return nil, fmt.Errorf("failed to execute template %s: %w", templatePath, err)
 	}
-	output := rendered.Bytes()
+	return rendered.Bytes(), nil
+}
 
-	// Conditional template blocks leave blank-line runs and misaligned
-	// declarations behind; gofmt every generated Go file so projects pass
-	// `gofmt -l` out of the box. A formatting failure means the template
-	// rendered invalid Go — surface it now instead of at the user's build.
-	if strings.HasSuffix(targetPath, ".go") {
-		formatted, err := format.Source(output)
-		if err != nil {
-			return fmt.Errorf("template %s rendered invalid Go: %w", templatePath, err)
-		}
-		output = formatted
+func formatTemplateGo(templatePath string, source []byte) ([]byte, error) {
+	formatted, err := format.Source(source)
+	if err != nil {
+		return nil, fmt.Errorf("template %s rendered invalid Go: %w", templatePath, err)
 	}
-
-	if err := os.WriteFile(targetPath, output, 0o644); err != nil {
-		return fmt.Errorf("failed to create file %s: %w", targetPath, err)
-	}
-
-	fmt.Printf("  ✓ Created %s\n", relativePath)
-	return nil
+	return formatted, nil
 }

@@ -4,7 +4,9 @@ package main
 
 import (
 	"log"
+
 	"net/http"
+
 	"os"
 
 	"api-demo/handlers"
@@ -23,20 +25,18 @@ func main() {
 		port = "8080"
 	}
 
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("GET /status", handlers.Status("api-demo"))
-
-	mux.HandleFunc("GET /health", health.Live)
-	mux.HandleFunc("GET /health/live", health.Live)
-
-	mux.HandleFunc("GET /docs", openapi.Docs)
-	mux.HandleFunc("GET /openapi.yaml", openapi.Spec)
-
 	server := runtime.NewServer(":" + port)
 
-	mux.Handle("GET /metrics", metrics.Handler(server))
-	server.Handler = metrics.Middleware(server)(mux)
+	server.Get("/status", handlers.Status("api-demo"))
+
+	server.Get("/health", health.Live)
+	server.Get("/health/live", health.Live)
+
+	server.Get("/docs", openapi.Docs)
+	server.Get("/openapi.yaml", openapi.Spec)
+
+	server.Handle(http.MethodGet, "/metrics", metrics.Handler(server))
+	server.Use(metrics.Middleware(server))
 
 	if os.Getenv("FGOTHS_DEV") == "1" {
 		server = server.WithReusePort().WithHMR()

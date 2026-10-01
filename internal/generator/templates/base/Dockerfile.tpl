@@ -12,11 +12,9 @@ COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/go/pkg/mod go mod download
 
 COPY . .
-{{if .IsMVC}}
 RUN --mount=type=cache,target=/go/pkg/mod \
 	--mount=type=cache,target=/root/.cache/go-build \
-	go tool templ generate
-{{end}}
+	go run ./cmd/assetmanifest{{if .IsMVC}} && go tool templ generate{{end}}
 
 ARG TARGETOS=linux
 ARG TARGETARCH

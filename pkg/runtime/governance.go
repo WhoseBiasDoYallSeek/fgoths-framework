@@ -468,9 +468,6 @@ func (r *DeploymentManifestRegistry) Register(manifest *DeploymentManifest) erro
 	}
 	service := strings.TrimSpace(manifest.Service)
 	env := strings.TrimSpace(manifest.Environment)
-	if service == "" || env == "" {
-		return fmt.Errorf("service and environment are required")
-	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.manifests[service] == nil {
@@ -540,9 +537,6 @@ func (l *DeploymentLedger) Record(manifest *DeploymentManifest) error {
 	}
 	service := strings.TrimSpace(manifest.Service)
 	env := strings.TrimSpace(manifest.Environment)
-	if service == "" || env == "" {
-		return fmt.Errorf("service and environment are required")
-	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.current[service] == nil {
@@ -582,7 +576,8 @@ type DeploymentStore interface {
 
 // FileDeploymentStore persists deployment ledger state as JSON on the local filesystem.
 type FileDeploymentStore struct {
-	path string
+	path    string
+	marshal func(DeploymentLedgerState) ([]byte, error)
 }
 
 // NewFileDeploymentStore creates a file-backed deployment store at the given path.
@@ -595,7 +590,13 @@ func (s *FileDeploymentStore) Save(state DeploymentLedgerState) error {
 	if s == nil || strings.TrimSpace(s.path) == "" {
 		return fmt.Errorf("file deployment store requires a path")
 	}
-	data, err := json.MarshalIndent(state, "", "  ")
+	var data []byte
+	var err error
+	if s.marshal == nil {
+		data, err = json.MarshalIndent(state, "", "  ")
+	} else {
+		data, err = s.marshal(state)
+	}
 	if err != nil {
 		return fmt.Errorf("marshal deployment ledger state: %w", err)
 	}
@@ -876,9 +877,6 @@ func (w *ReleaseWorkflow) Approve(actor string) error {
 	}
 	if w.Gate == nil {
 		return fmt.Errorf("approval gate is required")
-	}
-	if actor == "" {
-		return fmt.Errorf("approver identity is required")
 	}
 	if err := w.Gate.Approve(actor); err != nil {
 		return err

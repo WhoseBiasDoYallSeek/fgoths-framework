@@ -4,7 +4,7 @@
 // Dev mode: watches project files and keeps the app hot.
 //
 // Change routing:
-//   - .css/.js/.html      → asset served straight from disk; no restart
+//   - .css/.js/.html      → regenerate fingerprints, rebuild, then reload
 //   - .go/.templ/.fbs     → regenerate outputs (templ/fbs only), build a
 //     new binary into a temp path WHILE THE OLD PROCESS KEEPS SERVING,
 //     then swap: stop the old process and start the freshly built one.
@@ -32,6 +32,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -59,10 +60,8 @@ var (
 		".js":    true,
 		".fbs":   true,
 	}
-
 	buildTarget = "."
-
-	appURL = "http://localhost:" + envOr("PORT", "8080")
+	appURL      = "http://localhost:" + envOr("PORT", "8080")
 )
 
 func main() {
@@ -95,7 +94,7 @@ func durationStr(d time.Duration) string {
 }
 
 func runGenerate() error {
-	fmt.Println("   🔁 running make generate-assets...")
+	fmt.Println("   🔁 regenerating assets and fingerprints...")
 	cmd := exec.Command("make", "generate-assets")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
@@ -292,13 +291,17 @@ func setupWatcher(proc *exec.Cmd, binPath string) {
 	defer signal.Stop(sigCh)
 
 	var (
-		mu           sync.Mutex
-		restartTimer *time.Timer
-		busy         bool
-		pending      bool
-		pendingSrc   string
-		pendingGen   bool
-		snapshot     = snapshotWatchedFiles()
+		mu              sync.Mutex
+		restartTimer    *time.Timer
+		debounceID      uint64
+		debouncePending bool
+		debounceSrc     string
+		debounceGen     bool
+		busy            bool
+		pending         bool
+		pendingSrc      string
+		pendingGen      bool
+		snapshot        = snapshotWatchedFiles()
 	)
 
 	fmt.Println("   📺 Press Ctrl+C to stop")
@@ -388,8 +391,10 @@ func setupWatcher(proc *exec.Cmd, binPath string) {
 
 		mu.Lock()
 		if pending {
-			pending = false
 			nextSrc, nextGen := pendingSrc, pendingGen
+			pending = false
+			pendingSrc = ""
+			pendingGen = false
 			mu.Unlock()
 			runCycle(nextSrc, nextGen)
 			return
@@ -402,8 +407,8 @@ func setupWatcher(proc *exec.Cmd, binPath string) {
 		mu.Lock()
 		defer mu.Unlock()
 		if busy {
+			pendingSrc = mergeChangeSource(pendingSrc, changed, pending)
 			pending = true
-			pendingSrc = changed
 			pendingGen = pendingGen || needGenerate
 			fmt.Printf("   ⏳ change queued (build in progress): %s\n", filepath.Base(changed))
 			return
@@ -411,13 +416,26 @@ func setupWatcher(proc *exec.Cmd, binPath string) {
 		if restartTimer != nil {
 			restartTimer.Stop()
 		}
+		debounceSrc = mergeChangeSource(debounceSrc, changed, debouncePending)
+		debouncePending = true
+		debounceGen = debounceGen || needGenerate
+		debounceID++
+		timerID := debounceID
 		fmt.Printf("   ✏️  change (building): %s\n", filepath.Base(changed))
 		restartTimer = time.AfterFunc(watchDebounce, func() {
 			mu.Lock()
+			if timerID != debounceID {
+				mu.Unlock()
+				return
+			}
 			restartTimer = nil
+			source, generate := debounceSrc, debounceGen
+			debounceSrc = ""
+			debounceGen = false
+			debouncePending = false
 			busy = true
 			mu.Unlock()
-			runCycle(changed, needGenerate)
+			runCycle(source, generate)
 		})
 	}
 
@@ -430,9 +448,13 @@ func setupWatcher(proc *exec.Cmd, binPath string) {
 			if !shouldHandle(event) {
 				continue
 			}
+			if err := updateWatchedSnapshot(snapshot, event.Name); err != nil {
+				fmt.Printf("   ⚠️  watch snapshot failed for %s: %v\n", event.Name, err)
+			}
 			ext := filepath.Ext(event.Name)
-			if ext == ".css" || ext == ".js" || ext == ".html" {
-				fmt.Printf("   🎨 asset changed: %s (refresh the browser to see it)\n", filepath.Base(event.Name))
+			if isStaticAsset(event.Name) {
+				fmt.Printf("   🎨 asset changed: %s\n", filepath.Base(event.Name))
+				scheduleChange(event.Name, true)
 				continue
 			}
 			scheduleChange(event.Name, ext == ".templ" || ext == ".fbs")
@@ -522,7 +544,41 @@ func shouldHandle(event fsnotify.Event) bool {
 // restart loops, since generation is itself triggered by watch events.
 func isGenerated(clean string) bool {
 	return strings.HasSuffix(clean, "_templ.go") ||
+		strings.HasSuffix(clean, "manifest_gen.go") ||
 		strings.Contains(clean, "schemas/generated")
+}
+
+func isStaticAsset(path string) bool {
+	switch filepath.Ext(path) {
+	case ".css", ".js", ".html":
+		return true
+	default:
+		return false
+	}
+}
+
+func mergeChangeSource(current, next string, hasCurrent bool) string {
+	if !hasCurrent || isStaticAsset(next) || !isStaticAsset(current) {
+		return next
+	}
+	return current
+}
+
+func updateWatchedSnapshot(snapshot map[string]fileStamp, path string) error {
+	clean := filepath.Clean(path)
+	info, err := os.Stat(clean)
+	if err != nil {
+		if os.IsNotExist(err) {
+			delete(snapshot, clean)
+			return nil
+		}
+		return err
+	}
+	if !info.Mode().IsRegular() || !watchExts[filepath.Ext(clean)] || isGenerated(clean) {
+		return nil
+	}
+	snapshot[clean] = fileStamp{modUnixNano: info.ModTime().UnixNano(), size: info.Size()}
+	return nil
 }
 
 type fileStamp struct {
@@ -570,7 +626,7 @@ func detectSnapshotChanges(prev, curr map[string]fileStamp) ([]string, bool) {
 		if !ok || old != stamp {
 			changed = append(changed, path)
 			ext := filepath.Ext(path)
-			if ext == ".fbs" || ext == ".templ" {
+			if ext == ".fbs" || ext == ".templ" || isStaticAsset(path) {
 				needGenerate = true
 			}
 		}
@@ -578,6 +634,17 @@ func detectSnapshotChanges(prev, curr map[string]fileStamp) ([]string, bool) {
 	for path := range prev {
 		if _, ok := curr[path]; !ok {
 			changed = append(changed, path)
+			ext := filepath.Ext(path)
+			if ext == ".fbs" || ext == ".templ" || isStaticAsset(path) {
+				needGenerate = true
+			}
+		}
+	}
+	sort.Strings(changed)
+	for i, path := range changed {
+		if isStaticAsset(path) {
+			changed[0], changed[i] = changed[i], changed[0]
+			break
 		}
 	}
 	return changed, needGenerate

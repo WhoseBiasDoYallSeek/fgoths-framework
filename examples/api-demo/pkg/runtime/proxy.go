@@ -683,9 +683,6 @@ func (p *Proxy) refreshHealthStatus() bool {
 	}
 	probeURL := *p.targetURL
 	probeURL.Path = joinProxyPath(p.targetURL.Path, p.healthCheckPath, p.stripPrefix, p.targetPathPrefix, p.rewriteFrom, p.rewriteTo)
-	if probeURL.Path == "" {
-		probeURL.Path = "/"
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), p.healthCheckTimeout)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, probeURL.String(), nil)

@@ -29,6 +29,14 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
+var (
+	setupGenerateWatcherFunc = setupGenerateWatcher
+	newGenerateWatcher       = fsnotify.NewWatcher
+	addGenerateWatch         = func(watcher *fsnotify.Watcher, path string) error { return watcher.Add(path) }
+	walkGenerateDirectories  = filepath.Walk
+	notifyDevSignals         = signal.Notify
+)
+
 // RunGenerate compiles Templ templates for the current project. It also
 // dispatches `generate crud` (below).
 func RunGenerate(args []string) {
@@ -129,7 +137,7 @@ func runTempl() error {
 // runGenerateWatch watches the project for changes and re-runs generate with
 // a short debounce so the generator doesn't recurse into its own output files.
 func runGenerateWatch() {
-	watcher := setupGenerateWatcher()
+	watcher := setupGenerateWatcherFunc()
 	if watcher == nil {
 		return
 	}
@@ -140,7 +148,7 @@ func runGenerateWatch() {
 // setupGenerateWatcher builds and configures the fsnotify watcher for watch
 // mode, returning nil after reporting a fatal setup error.
 func setupGenerateWatcher() *fsnotify.Watcher {
-	watcher, err := fsnotify.NewWatcher()
+	watcher, err := newGenerateWatcher()
 	if err != nil {
 		fmt.Printf("watch mode failed to initialize: %v\n", err)
 		osExit(1)
@@ -149,7 +157,7 @@ func setupGenerateWatcher() *fsnotify.Watcher {
 
 	var walkMu sync.Mutex
 	var watchedDirs []string
-	if err := filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
+	if err := walkGenerateDirectories(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -159,7 +167,7 @@ func setupGenerateWatcher() *fsnotify.Watcher {
 		if shouldSkipWatchDir(path) {
 			return filepath.SkipDir
 		}
-		if err := watcher.Add(path); err != nil {
+		if err := addGenerateWatch(watcher, path); err != nil {
 			return err
 		}
 		walkMu.Lock()
@@ -203,7 +211,7 @@ func loopGenerateWatcher(watcher *fsnotify.Watcher) {
 
 			if event.Op&fsnotify.Create != 0 {
 				if info, err := os.Stat(event.Name); err == nil && info.IsDir() {
-					if err := watcher.Add(event.Name); err == nil {
+					if err := addGenerateWatch(watcher, event.Name); err == nil {
 						fmt.Printf("Watching new directory: %s\n", event.Name)
 					}
 				}
@@ -258,7 +266,7 @@ func RunDev(args []string) {
 	}
 
 	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	notifyDevSignals(sigCh, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(sigCh)
 	go func() {
 		for sig := range sigCh {

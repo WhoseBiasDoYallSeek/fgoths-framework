@@ -1,5 +1,7 @@
 package views
 
+import "webapp-demo/internal/assets"
+
 templ Layout(title, projectName string) {
 	<!DOCTYPE html>
 	<html lang="en">
@@ -7,7 +9,7 @@ templ Layout(title, projectName string) {
 		<meta charset="UTF-8"/>
 		<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 		<title>{ title } - { projectName }</title>
-		<link rel="stylesheet" href="/static/css/app.css"/>
+		<link rel="stylesheet" href={ assets.URL("css/app.css") }/>
 		<script src="https://unpkg.com/htmx.org@2.0.4"></script>
 	</head>
 	<body>

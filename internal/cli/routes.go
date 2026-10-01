@@ -24,7 +24,7 @@ import (
 )
 
 // routeEntry is one HTTP route discovered by statically scanning the
-// project's Go source for `mux.Handle`/`mux.HandleFunc` registrations.
+// project's Go source for runtime or ServeMux registrations.
 type routeEntry struct {
 	Method string
 	Path   string
@@ -32,11 +32,18 @@ type routeEntry struct {
 	Line   int
 }
 
-var muxRegisterPattern = regexp.MustCompile(`mux\.(?:HandleFunc|Handle)\(\s*"([^"]+)"`)
+var (
+	muxRegisterPattern         = regexp.MustCompile(`mux\.(?:HandleFunc|Handle)\(\s*"([^"]+)"`)
+	serverMethodPattern        = regexp.MustCompile(`(?:server|registrar)\.(Get|Post|Put|Patch|Delete|Any)\(\s*"([^"]+)"`)
+	serverHandlePattern        = regexp.MustCompile(`(?:server|registrar)\.Handle\(\s*http\.Method(Get|Post|Put|Patch|Delete)\s*,\s*"([^"]+)"`)
+	scanRoutesInCurrentProject = scanRoutes
+	walkRouteSources           = filepath.Walk
+	readRouteSource            = os.ReadFile
+)
 
 // RunRoutes scans the current generated project for registered HTTP routes
 // and prints them, similar in spirit to `artisan route:list`. It is a static
-// scan of `mux.Handle`/`mux.HandleFunc` call sites, not a running server.
+// scan of route registration call sites, not a running server.
 func RunRoutes(args []string) {
 	if _, err := os.Stat("go.mod"); err != nil {
 		fmt.Println("❌ go.mod not found; run this inside a generated project")
@@ -44,14 +51,14 @@ func RunRoutes(args []string) {
 		return
 	}
 
-	routes, err := scanRoutes(".")
+	routes, err := scanRoutesInCurrentProject(".")
 	if err != nil {
 		fmt.Printf("❌ Could not scan routes: %v\n", err)
 		return
 	}
 	if len(routes) == 0 {
 		fmt.Println("No routes found.")
-		fmt.Println("   Next step: register a handler with mux.HandleFunc(\"METHOD /path\", ...) or run `fgoths generate crud`.")
+		fmt.Println("   Next step: register a handler with server.Get/Post/Put/Patch/Delete or run `fgoths generate crud`.")
 		return
 	}
 
@@ -78,11 +85,11 @@ func RunRoutes(args []string) {
 	}
 }
 
-// scanRoutes walks root looking for mux.Handle/mux.HandleFunc registrations
-// in non-test Go source files.
+// scanRoutes walks root looking for runtime or ServeMux registrations in
+// non-test Go source files.
 func scanRoutes(root string) ([]routeEntry, error) {
 	var routes []routeEntry
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	err := walkRouteSources(root, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return nil
 		}
@@ -95,20 +102,26 @@ func scanRoutes(root string) ([]routeEntry, error) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		content, err := os.ReadFile(path)
+		content, err := readRouteSource(path)
 		if err != nil {
 			return nil
 		}
 		for lineNumber, line := range strings.Split(string(content), "\n") {
-			match := muxRegisterPattern.FindStringSubmatch(line)
-			if match == nil {
+			if match := muxRegisterPattern.FindStringSubmatch(line); match != nil {
+				method, routePath := "ANY", match[1]
+				if parts := strings.SplitN(match[1], " ", 2); len(parts) == 2 {
+					method, routePath = parts[0], parts[1]
+				}
+				routes = append(routes, routeEntry{Method: method, Path: routePath, File: filepath.ToSlash(path), Line: lineNumber + 1})
 				continue
 			}
-			method, routePath := "ANY", match[1]
-			if parts := strings.SplitN(match[1], " ", 2); len(parts) == 2 {
-				method, routePath = parts[0], parts[1]
+			if match := serverMethodPattern.FindStringSubmatch(line); match != nil {
+				routes = append(routes, routeEntry{Method: strings.ToUpper(match[1]), Path: match[2], File: filepath.ToSlash(path), Line: lineNumber + 1})
+				continue
 			}
-			routes = append(routes, routeEntry{Method: method, Path: routePath, File: filepath.ToSlash(path), Line: lineNumber + 1})
+			if match := serverHandlePattern.FindStringSubmatch(line); match != nil {
+				routes = append(routes, routeEntry{Method: strings.ToUpper(match[1]), Path: match[2], File: filepath.ToSlash(path), Line: lineNumber + 1})
+			}
 		}
 		return nil
 	})

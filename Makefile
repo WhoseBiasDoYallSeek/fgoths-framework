@@ -1,6 +1,6 @@
 # Framework version — single source of truth for release builds.
 # Bump this (or override via ldflags) for maintenance releases.
-VERSION ?= 1.1.0
+VERSION ?= 1.2.0
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 
@@ -12,7 +12,7 @@ LDFLAGS = -X github.com/WhoseBiasDoYallSeek/fgoths-framework/internal/cli.Versio
 print-ldflags:
 	@echo "$(LDFLAGS)"
 
-.PHONY: build test cover benchmark benchmark-quick version check-templates check-perf print-ldflags clean
+.PHONY: build test cover benchmark benchmark-quick benchmark-saturation benchmark-real-app version check-templates check-perf print-ldflags clean
 
 # Compile the CLI locally with version metadata stamped in
 build:
@@ -22,14 +22,15 @@ build:
 version:
 	@go run -ldflags="$(LDFLAGS)" ./cmd/fgoths version
 
-# Run internal tests (race detector on)
+# Run the full suite with the race detector.
 test:
-	go test -race -cover ./...
+	go test -race ./...
 
-# Coverage report (per-package + total) with HTML output
+# Coverage report (per-package + total) with HTML output. Short mode avoids
+# collecting coverage from the CLI's long-lived subprocess test helpers.
 cover:
-	go test -coverprofile=coverage.out ./...
-	go tool cover -func=coverage.out | tail -1
+	go test -short -coverprofile=coverage.out ./...
+	@go tool cover -func=coverage.out | awk '/^total:/ { found=1; print; if ($$NF != "100.0%") { print "coverage is below the 100% statement-coverage target"; exit 1 } } END { if (!found) { print "coverage total was not reported"; exit 1 } }'
 	go tool cover -html=coverage.out -o coverage.html
 	@echo "coverage.html generated"
 
@@ -40,6 +41,14 @@ benchmark:
 # Quick benchmark pass (shorter durations)
 benchmark-quick:
 	./benchmarks/run-benchmarks.sh --quick
+
+# Repeated clean saturation runs plus a separate pprof diagnostics run.
+benchmark-saturation:
+	./benchmarks/run-saturation.sh
+
+# Compare generated CRUD traffic on the FGOTHS router and stdlib ServeMux.
+benchmark-real-app:
+	./benchmarks/run-real-app.sh
 
 # Dispatch allocation regression gate (fails on alloc increase vs baseline)
 check-perf:

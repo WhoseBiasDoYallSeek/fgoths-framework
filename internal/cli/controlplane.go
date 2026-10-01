@@ -28,6 +28,11 @@ import (
 	"github.com/WhoseBiasDoYallSeek/fgoths-framework/pkg/runtime"
 )
 
+var (
+	openSQLiteControlPlaneStores = sqliteStores
+	controlPlaneFatalf           = log.Fatalf
+)
+
 // RunControlPlane starts the external control plane API server, exposing the
 // route registry, upstreams, deployment ledger and release workflows over REST.
 //
@@ -107,9 +112,15 @@ var signalStopChan = func() chan os.Signal {
 // on stop, then performs a graceful shutdown. The listening banner is printed
 // after the serve goroutine starts, mirroring the previous behavior.
 func serveControlPlaneUntilSignal(server *runtime.Server, stop chan os.Signal) {
+	serveControlPlaneUntilSignalWith(server, stop, server.ListenAndServe, func(err error) {
+		controlPlaneFatalf("control plane failed: %v", err)
+	})
+}
+
+func serveControlPlaneUntilSignalWith(server *runtime.Server, stop chan os.Signal, listen func() error, fatalf func(error)) {
 	go func() {
-		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("control plane failed: %v", err)
+		if err := listen(); err != nil && err != http.ErrServerClosed {
+			fatalf(err)
 		}
 	}()
 
@@ -130,7 +141,7 @@ func serveControlPlaneUntilSignal(server *runtime.Server, stop chan os.Signal) {
 func newControlPlaneServer(storeSpec, token string) (*runtime.ControlPlaneServer, error) {
 	if strings.HasPrefix(storeSpec, "sqlite://") {
 		path := strings.TrimPrefix(storeSpec, "sqlite://")
-		depStore, policyStore, err := sqliteStores(path)
+		depStore, policyStore, err := openSQLiteControlPlaneStores(path)
 		if err != nil {
 			return nil, err
 		}

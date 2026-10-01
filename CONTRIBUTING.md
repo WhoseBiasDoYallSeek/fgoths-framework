@@ -1,6 +1,7 @@
 # Contributing to FGOTHS
 
-Thank you for your interest in contributing to FGOTHS! We welcome pull requests, bug reports, feature proposals, and documentation improvements.
+Thank you for your interest in contributing to FGOTHS! We welcome pull
+requests, bug reports, feature proposals, and documentation improvements.
 
 ---
 
@@ -18,7 +19,7 @@ Thank you for your interest in contributing to FGOTHS! We welcome pull requests,
 git clone https://github.com/WhoseBiasDoYallSeek/fgoths-framework.git
 cd fgoths-framework
 
-# Run unit tests
+# Run tests
 go test ./...
 
 # Build CLI locally
@@ -28,40 +29,58 @@ make build
 
 ---
 
-## Validation checklist (run before opening a PR)
+## Validation
 
 ```bash
-go build ./...                          # compiles
-go vet ./...                            # static analysis
-golangci-lint run ./...                 # lint (config in .golangci.yml)
-go test ./...                           # full suite
-go test -race ./pkg/runtime/ ./internal/cli/   # race detector on hot packages
-go run ./cmd/fgoths sync-templates --check     # template drift guard
-./benchmarks/check-perf-regression.sh   # dispatch allocation gate
+go test ./...                      # full functional and generated-project tests
+make test                          # full suite under the race detector
+make cover                         # short-mode statement coverage report
+go build ./...
+go vet ./...
+make check-templates
 ```
 
-All of these must pass. The template drift guard and the allocation gate are
-the two most commonly missed — see below.
+`make cover` uses `-short` because the CLI suite has subprocess helpers that
+cannot reliably participate in Go's coverage collection. The full suite,
+including those helpers, still runs under the race detector with `make test`.
+The short-mode report must reach 100% repository-wide statement coverage;
+`make cover` fails if the target is missed. This measures statement coverage,
+not branch coverage.
+
+`golangci-lint run ./...` is recommended when golangci-lint is installed.
+Run `make check-perf` when changing routing, proxying, or allocation-sensitive
+runtime code. Docker builds are not part of the default test suite; validate
+them separately when changing container generation.
+
+There is no GitHub Actions workflow in this repository. These commands are
+local validation guidance; any external CI must invoke the relevant checks
+explicitly.
 
 ---
 
 ## Project-specific rules
 
-### Runtime is a verbatim copy (ADR 0002)
+### Runtime template synchronization (ADR 0002)
 
-`pkg/runtime/*.go` must stay byte-identical to
-`internal/generator/templates/base/pkg/runtime/*.go.tpl` (and to the copies in
-`examples/*/pkg/runtime/`). If you edit a runtime file:
+Generated projects contain selected runtime files, not a copy of every file
+in `pkg/runtime`. `sync-templates` maintains the explicitly managed core and
+feature file pairs; generated-project integration tests compile representative
+outputs. If you change a managed runtime source or template:
 
 ```bash
-cp pkg/runtime/router.go internal/generator/templates/base/pkg/runtime/router.go.tpl
-cp pkg/runtime/router.go examples/api-demo/pkg/runtime/router.go
-cp pkg/runtime/router.go examples/webapp-demo/pkg/runtime/router.go
-go run ./cmd/fgoths sync-templates --check   # must pass
+go run ./cmd/fgoths sync-templates
+make check-templates
+go test ./pkg/runtime ./internal/cli ./internal/generator
 ```
 
-Feature-scoped files (`auth.go`, `otel.go`, `tls.go`, `identity.go`) sync to
-`internal/generator/templates/features/<feature>/pkg/runtime/`.
+Feature-scoped runtime files are kept in their corresponding feature
+templates. Update the committed example copies when their generated behavior
+changes, then run the example test suites:
+
+```bash
+(cd examples/api-demo && go test ./...)
+(cd examples/webapp-demo && go test ./...)
+```
 
 ### Dispatch allocations are gated
 
@@ -89,7 +108,7 @@ package-level exclusion to `.golangci.yml`.
 ## Pull requests
 
 1. Fork, create a branch (`feature/amazing-feature`).
-2. Run the full validation checklist above.
+2. Run the applicable validation commands above.
 3. Update `CHANGELOG.md` under `[Unreleased]` (Added/Changed/Fixed/Removed).
 4. Open the PR describing the *why*, not just the *what*.
 

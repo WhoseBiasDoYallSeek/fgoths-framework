@@ -58,7 +58,8 @@ type PolicyVersionStore interface {
 // FilePolicyVersionStore persists policy versions as a JSON file, keeping the
 // control plane dependency-free while surviving process restarts.
 type FilePolicyVersionStore struct {
-	path string
+	path    string
+	marshal func(PolicyVersionState) ([]byte, error)
 }
 
 // NewFilePolicyVersionStore creates a file-backed policy version store.
@@ -71,7 +72,13 @@ func (s *FilePolicyVersionStore) Save(state PolicyVersionState) error {
 	if s == nil || strings.TrimSpace(s.path) == "" {
 		return fmt.Errorf("policy version store path is required")
 	}
-	raw, err := json.MarshalIndent(state, "", "  ")
+	var raw []byte
+	var err error
+	if s.marshal == nil {
+		raw, err = json.MarshalIndent(state, "", "  ")
+	} else {
+		raw, err = s.marshal(state)
+	}
 	if err != nil {
 		return fmt.Errorf("failed to marshal policy versions: %w", err)
 	}

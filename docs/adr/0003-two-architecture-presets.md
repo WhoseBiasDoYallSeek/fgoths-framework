@@ -18,12 +18,16 @@ Everything else is an **opt-in feature** (metrics, openapi, grpc, jwt-auth, mtls
 
 ## Rationale
 1. **Depth over breadth:** two layouts can be tuned end-to-end — scaffolding, tests, `FROM scratch` container, docs. Five layouts would each be half-polished.
-2. **Test matrix control:** the CI validates every preset × database × feature combination that exists. Adding a third architecture would square the maintenance cost.
+2. **Test matrix control:** the repository tests representative generated
+   projects and exercises database/feature configuration paths. It does not
+   compile every preset × database × feature combination. Adding a third
+   architecture still increases the combinations that must be maintained.
 3. **The two patterns cover the real split:** JSON APIs/services (flat) and server-rendered apps (MVC). Hybrid needs are served by MVC, whose handlers also serve JSON.
 4. **Escape hatch:** users who need a different layout can restructure after generation — the generated code is plain Go with no framework magic binding it to the scaffold.
 
 ---
 
 ## Consequences
-* **Positive:** every generated project is polished and fully tested; smaller template surface; simpler docs and onboarding.
+* **Positive:** a smaller template surface and simpler docs and onboarding;
+  representative generated projects are compiled by integration tests.
 * **Negative:** users wanting clean/hexagonal scaffolding out of the box must restructure manually. This is a deliberate trade: FGOTHS optimizes for the 80% case and stays out of the way for the rest.

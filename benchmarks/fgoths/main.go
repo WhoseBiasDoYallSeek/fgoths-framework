@@ -21,9 +21,13 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"net"
 	"net/http"
+	"net/http/pprof"
 	"os"
+	goruntime "runtime"
 	"sync"
+	"time"
 
 	"github.com/WhoseBiasDoYallSeek/fgoths-framework/pkg/runtime"
 )
@@ -36,9 +40,10 @@ type User struct {
 }
 
 var (
-	users   = make(map[int]User)
-	usersMu sync.RWMutex
-	nextID  = 1
+	users              = make(map[int]User)
+	usersMu            sync.RWMutex
+	nextID             = 1
+	healthResponseBody = []byte(`{"status":"UP"}`)
 )
 
 func main() {
@@ -48,6 +53,16 @@ func main() {
 	}
 
 	seedData()
+
+	if os.Getenv("FGOTHS_BENCH_PROFILE") == "1" {
+		profilePort := os.Getenv("FGOTHS_BENCH_PROFILE_PORT")
+		if profilePort == "" {
+			profilePort = "18081"
+		}
+		if err := startProfileServer(net.JoinHostPort("127.0.0.1", profilePort)); err != nil {
+			log.Fatalf("start benchmark profile server: %v", err)
+		}
+	}
 
 	srv := runtime.NewServer(":" + port)
 
@@ -62,6 +77,68 @@ func main() {
 
 	log.Printf("🚀 FGOTHS Benchmark Server (runtime router) running on http://localhost:%s", port)
 	log.Fatal(srv.ListenAndServe())
+}
+
+func startProfileServer(addr string) error {
+	listener, err := net.Listen("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	goruntime.SetMutexProfileFraction(10)
+	goruntime.SetBlockProfileRate(int(time.Millisecond))
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	for _, profile := range []string{"allocs", "block", "goroutine", "heap", "mutex", "threadcreate"} {
+		mux.Handle("/debug/pprof/"+profile, pprof.Handler(profile))
+	}
+	mux.HandleFunc("/debug/bench/runtime", benchmarkRuntimeHandler)
+
+	go func() {
+		if err := (&http.Server{Handler: mux}).Serve(listener); err != nil && err != http.ErrServerClosed {
+			log.Printf("benchmark profile server failed: %v", err)
+		}
+	}()
+	log.Printf("benchmark diagnostics listening on http://%s (loopback only)", listener.Addr())
+	return nil
+}
+
+func benchmarkRuntimeHandler(w http.ResponseWriter, _ *http.Request) {
+	var memory goruntime.MemStats
+	goruntime.ReadMemStats(&memory)
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(struct {
+		Timestamp     time.Time `json:"timestamp"`
+		GoVersion     string    `json:"go_version"`
+		GOMAXPROCS    int       `json:"gomaxprocs"`
+		Goroutines    int       `json:"goroutines"`
+		HeapAlloc     uint64    `json:"heap_alloc_bytes"`
+		HeapInuse     uint64    `json:"heap_inuse_bytes"`
+		HeapSys       uint64    `json:"heap_sys_bytes"`
+		TotalAlloc    uint64    `json:"total_alloc_bytes"`
+		NumGC         uint32    `json:"num_gc"`
+		PauseTotalNS  uint64    `json:"pause_total_ns"`
+		LastPauseTime uint64    `json:"last_pause_ns"`
+	}{
+		Timestamp:     time.Now().UTC(),
+		GoVersion:     goruntime.Version(),
+		GOMAXPROCS:    goruntime.GOMAXPROCS(0),
+		Goroutines:    goruntime.NumGoroutine(),
+		HeapAlloc:     memory.HeapAlloc,
+		HeapInuse:     memory.HeapInuse,
+		HeapSys:       memory.HeapSys,
+		TotalAlloc:    memory.TotalAlloc,
+		NumGC:         memory.NumGC,
+		PauseTotalNS:  memory.PauseTotalNs,
+		LastPauseTime: memory.PauseNs[(memory.NumGC+255)%256],
+	}); err != nil {
+		log.Printf("write benchmark runtime diagnostics: %v", err)
+	}
 }
 
 func seedData() {
@@ -80,7 +157,7 @@ func seedData() {
 func healthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"UP"}`))
+	w.Write(healthResponseBody)
 }
 
 func listUsers(w http.ResponseWriter, r *http.Request) {

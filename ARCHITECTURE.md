@@ -3,9 +3,11 @@
 ## Overview
 **FGOTHS** (Flatbuffers, Go, Orchestration, Templates, HTMX, SQL/Scratch) is an opinionated, high-performance web framework designed for modular project generation and pure Server-Side Rendering (SSR). The framework combines a generator CLI, architecture presets, and production-oriented generated Go projects into a streamlined DX for mission-critical services.
 
-> Current status (v1.1.0): the generator, presets, and runtime behavior are
-> validated end-to-end, with performance claims measured and reproducible
-> (`benchmarks/run-benchmarks.sh`). The embedded runtime is a production-ready
+> Current status (v1.2.0): the generator, presets, and runtime behavior are
+> covered by unit, contract, and representative generated-project tests; the
+> generated-project matrix is not exhaustive. Performance benchmarks are
+> reproducible (`benchmarks/run-benchmarks.sh`). The embedded runtime is a
+> production-oriented
 > native Go layer: routing, proxy with connection pooling, retry, circuit
 > breaker, health-checked failover, governance and control plane APIs. It
 > remains intentionally a lightweight embedded runtime, not a full enterprise
@@ -28,7 +30,7 @@ main.go              # entrypoint: server, routes, graceful shutdown
 handlers/            # HTTP handlers — add your endpoints here
 internal/            # optional feature packages (database, health, metrics,
                      # openapi, grpcapi) — generated only when selected
-pkg/runtime/         # FGOTHS runtime (verbatim copy of the tested framework runtime)
+pkg/runtime/         # selected FGOTHS runtime sources and feature code
 ```
 
 **Principle:** zero ceremony. A JSON API should be a folder you can read in a
@@ -48,14 +50,19 @@ pkg/runtime/         # FGOTHS runtime
 ```
 
 **Principle:** traditional Model-View-Controller, fast to understand and fast
-to prototype. `fgoths generate crud` scaffolds a complete vertical slice
-(model + handler + repository + migration + tests) inside this layout.
+to prototype. `fgoths generate crud` scaffolds a model, handler, repository,
+migration, and tests. The generated API currently exposes collection-level
+`GET` and `POST` routes; read/update/delete-by-ID routes are not generated.
 
 ---
 
 ## Runtime
 
-The FGOTHS runtime is the execution layer embedded in every generated project. It is a verbatim copy of `pkg/runtime` from this framework — not a reimplementation — validated by the same test suite. This eliminates the gap between "what we test" and "what you run."
+Generated projects include selected FGOTHS runtime source files and the
+optional feature code they require; they do not depend on the framework as a
+Go module or copy every file in `pkg/runtime`. Managed source/template pairs
+are checked by `sync-templates`, and generated-project integration tests
+compile representative outputs.
 
 ### Request lifecycle
 
@@ -102,6 +109,38 @@ server.ListenAndServe()        # blocking (consumes injected listener if set)
 server.Shutdown(ctx)            # drain in-flight, run OnShutdown hooks
 ```
 
+### Router ownership and route registration
+
+Generated applications register HTTP routes on `*runtime.Server`, which owns
+the FGOTHS router and installs it as the embedded `http.Server.Handler`.
+`Server` implements `runtime.Registrar` (`Handle(method, path, handler)`), so
+generated route registries can accept that small interface without depending
+on a concrete server. The `Get`, `Post`, `Put`, `Patch` and `Delete` helpers
+delegate to the same router.
+
+In generated applications, do not replace `server.Handler` after constructing
+the server: doing so bypasses the FGOTHS router, its registered routes, and
+router middleware. Add routes via `server.Handle` or a verb helper, then add
+middleware with `server.Use`. Middleware is applied in registration order from
+outermost to innermost. `WithHMR` wraps the current handler to add development
+endpoints; it does not change which router owns application routes. The
+framework's dedicated control-plane server is a specialized exception: it
+installs its own handler and does not register application routes.
+
+The runtime contract tests cover all five verb helpers, route-parameter
+precedence, lazy `PathValue` extraction, and middleware application order.
+
+### Static asset fingerprints
+
+Generated MVC projects use `internal/assets.URL` in Templ layouts.
+`make generate-assets` hashes each file under `static/` with SHA-256 and writes
+the deterministic `internal/assets/manifest_gen.go` manifest. Asset URLs
+include that file's fingerprint as a `v` query parameter. In production, a
+request with the matching fingerprint is cacheable for one year; missing or
+stale fingerprints revalidate. In development, static responses use `no-store`,
+and changes to CSS, JS, or HTML regenerate the manifest, rebuild, and broadcast
+a full browser reload.
+
 ---
 
 ## Hot Module Replacement (HMR) & Dev Loop
@@ -141,6 +180,7 @@ sides of the wire share one source of truth and cannot drift.
 |---|---|---|
 | `reload` | Go code, `views/layout.templ`, or any change whose blast radius is not scoped to one view | full page reload |
 | `fragment` | a `views/<name>.templ` change (except layout) | fetches the fresh render of that route, swaps `#fgoths-content` innerHTML in place — scroll, focus and form state survive |
+| `reload` | CSS, JS, or static HTML asset change | full page reload, with updated asset fingerprints |
 | `ping` | keep-alive | confirms the stream is live |
 
 ### Dev loop observability
@@ -201,18 +241,18 @@ The `fgoths init` CLI scaffolds projects using Go templates located in `internal
 
 | Directory | Content |
 |---|---|
-| `base/` | Always generated: `go.mod`, `Makefile`, README, dev server, and the four core runtime files |
+| `base/` | Always generated: `go.mod`, `Makefile`, README, dev server, asset manifest tooling, and the core runtime |
 | `architectures/` | `flat` and `mvc` layouts |
 | `database/` | `sqlite`, `postgres`, `mysql` layers with embedded migrations |
 | `features/` | `jwt-auth`, `otel`, `mtls`, `grpc`, `openapi`, `health`, `metrics`, `htmx`, `flatbuffers`, `ci-cd` |
 
-The core runtime files are verbatim copies (not templates) of `pkg/runtime` —
-synchronized via `sync-templates` and guarded by `TestRuntimeTemplatesInSync`.
-The sync covers eight managed pairs: the four base files plus the feature
-templates `jwt-auth/auth.go`, `otel/otel.go`, `mtls/tls.go` and
-`mtls/identity.go`, so security-critical code cannot silently drift between the
-framework runtime and generated projects. Run `make check-templates` (wired into
-CI) to enforce it.
+The managed runtime sources are synchronized into templates and guarded by
+`TestRuntimeTemplatesInSync`. The sync currently covers eight pairs: four base
+files plus `jwt-auth/auth.go`, `otel/otel.go`, `mtls/tls.go` and
+`mtls/identity.go`. This is an explicit list, not a claim that every file in
+`pkg/runtime` is copied to every generated project. Run
+`make check-templates` to verify the managed pairs. No GitHub Actions workflow
+is committed in this repository; external CI must invoke this target itself.
 
 Feature-only templates (metrics, openapi, grpc, etc.) contain Go `{{}}`
 directive syntax that must be templated per project, so they are not synced.
