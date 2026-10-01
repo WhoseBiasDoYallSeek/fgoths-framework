@@ -6,12 +6,16 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-01
+
 ### Added
 - `fgoths upgrade` plans and applies versioned embedded-runtime updates in
   existing generated projects, records project version/configuration, backs
   up changed files, and three-way merges non-overlapping local edits while
   preserving originals on conflicts. It keeps upgrade artifacts out of Git
-  without hiding the project metadata.
+  without hiding the project metadata. Supported sources are v1.1.0 and
+  v1.2.0; generated projects now record `.fgoths/upgrade.json` so future
+  upgrades no longer need `--from`.
 
 ## [1.2.0] - 2026-10-01
 
@@ -190,7 +194,8 @@ reproducible benchmarks. The generated-project test matrix is not exhaustive.
 - Multi-tenancy quotas exist but are not validated under real multi-tenant
   production load.
 
-[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/releases/tag/v1.0.0

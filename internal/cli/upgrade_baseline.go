@@ -20,10 +20,17 @@ import (
 	"io/fs"
 )
 
-//go:embed upgrade/baselines/v1.1.0/pkg/runtime
+//go:embed upgrade/baselines/v1.1.0/pkg/runtime upgrade/baselines/v1.2.0/pkg/runtime
 var upgradeBaselines embed.FS
 
-const latestRuntimeUpgradeVersion = "1.2.0"
+const latestRuntimeUpgradeVersion = "1.3.0"
+
+// supportedRuntimeUpgradeSources lists the releases whose generated runtime is
+// embedded as a three-way merge ancestor.
+var supportedRuntimeUpgradeSources = map[string]bool{
+	"1.1.0": true,
+	"1.2.0": true,
+}
 
 var runtimeUpgradePaths = []string{
 	"pkg/runtime/server.go",
@@ -34,14 +41,14 @@ var runtimeUpgradePaths = []string{
 }
 
 func runtimeUpgradeBaseline(version string) (map[string][]byte, error) {
-	if version != "1.1.0" {
-		return nil, fmt.Errorf("no runtime upgrade baseline is available for v%s (supported source: v1.1.0)", version)
+	if !supportedRuntimeUpgradeSources[version] {
+		return nil, fmt.Errorf("no runtime upgrade baseline is available for v%s (supported sources: v1.1.0, v1.2.0)", version)
 	}
 	baseline := make(map[string][]byte, len(runtimeUpgradePaths))
 	for _, path := range runtimeUpgradePaths {
-		content, err := fs.ReadFile(upgradeBaselines, "upgrade/baselines/v1.1.0/"+path+".txt")
+		content, err := fs.ReadFile(upgradeBaselines, "upgrade/baselines/v"+version+"/"+path+".txt")
 		if err != nil {
-			return nil, fmt.Errorf("read embedded v1.1.0 baseline for %s: %w", path, err)
+			return nil, fmt.Errorf("read embedded v%s baseline for %s: %w", version, path, err)
 		}
 		baseline[path] = content
 	}

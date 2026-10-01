@@ -3,7 +3,7 @@
 ## Overview
 **FGOTHS** (Flatbuffers, Go, Orchestration, Templates, HTMX, SQL/Scratch) is an opinionated, high-performance web framework designed for modular project generation and pure Server-Side Rendering (SSR). The framework combines a generator CLI, architecture presets, and production-oriented generated Go projects into a streamlined DX for mission-critical services.
 
-> Current status (v1.2.0): the generator, presets, and runtime behavior are
+> Current status (v1.3.0): the generator, presets, and runtime behavior are
 > covered by unit, contract, and representative generated-project tests; the
 > generated-project matrix is not exhaustive. Performance benchmarks are
 > reproducible (`benchmarks/run-benchmarks.sh`). The embedded runtime is a

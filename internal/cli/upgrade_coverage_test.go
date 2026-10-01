@@ -91,16 +91,16 @@ func TestExecuteUpgradeFailureExits(t *testing.T) {
 }
 
 func TestFrameworkVersionSources(t *testing.T) {
-	replaceHook(t, &Version, "1.2.0")
-	if got := frameworkVersion(); got != "1.2.0" {
+	replaceHook(t, &Version, "1.3.0")
+	if got := frameworkVersion(); got != "1.3.0" {
 		t.Fatalf("frameworkVersion() with release ldflags = %q", got)
 	}
 
 	replaceHook(t, &Version, "0.0.0-dev")
 	replaceHook(t, &readBuildInfo, func() (*debug.BuildInfo, bool) {
-		return &debug.BuildInfo{Main: debug.Module{Version: "v1.2.0"}}, true
+		return &debug.BuildInfo{Main: debug.Module{Version: "v1.3.0"}}, true
 	})
-	if got := frameworkVersion(); got != "1.2.0" {
+	if got := frameworkVersion(); got != "1.3.0" {
 		t.Fatalf("frameworkVersion() with module version = %q", got)
 	}
 
@@ -112,8 +112,8 @@ func TestFrameworkVersionSources(t *testing.T) {
 
 func TestRunUpgradeRejectsInvalidInvocations(t *testing.T) {
 	t.Run("mismatched CLI version", func(t *testing.T) {
-		replaceHook(t, &Version, "1.3.0")
-		wantErrContains(t, runUpgradeQuietly(t), "reports v1.3.0")
+		replaceHook(t, &Version, "1.2.0")
+		wantErrContains(t, runUpgradeQuietly(t), "reports v1.2.0")
 	})
 	t.Run("unknown flag", func(t *testing.T) {
 		wantErrContains(t, runUpgradeQuietly(t, "--unknown"), "flag provided but not defined")
@@ -136,10 +136,10 @@ func TestRunUpgradeRejectsInvalidInvocations(t *testing.T) {
 
 func TestRunUpgradeReportsCurrentProject(t *testing.T) {
 	root, _, _ := newLegacyUpgradeProject(t)
-	writeUpgradeTestFile(t, root, ".fgoths/upgrade.json", `{"framework_version":"1.2.0"}`)
+	writeUpgradeTestFile(t, root, ".fgoths/upgrade.json", `{"framework_version":"1.3.0"}`)
 	var err error
 	output := captureStdout(t, func() { err = RunUpgrade([]string{"--dir=" + root}) })
-	if err != nil || !strings.Contains(output, "already at v1.2.0") {
+	if err != nil || !strings.Contains(output, "already at v1.3.0") {
 		t.Fatalf("RunUpgrade() error = %v, output = %q", err, output)
 	}
 }
@@ -157,7 +157,7 @@ func TestRunUpgradeApplyFailures(t *testing.T) {
 			return []byte("candidate"), errMergeConflict
 		})
 		wantErrContains(t, runUpgradeQuietly(t, "--dir="+root, "--from=1.1.0", "--apply"), "1 local conflict(s)")
-		candidate, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade-conflicts", "v1.2.0", "pkg", "runtime", "server.go.merge"))
+		candidate, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade-conflicts", "v1.3.0", "pkg", "runtime", "server.go.merge"))
 		if err != nil || string(candidate) != "candidate" {
 			t.Fatalf("merge candidate = %q, err = %v", candidate, err)
 		}
@@ -335,48 +335,48 @@ func TestApplyRuntimeUpgradeFileActionErrors(t *testing.T) {
 		report upgradeReport
 		want   string
 	}{
-		{name: "unsafe artifact ignore", report: upgradeReport{to: "1.2.0", artifactIgnore: &upgradeFileAction{path: "../x"}},
+		{name: "unsafe artifact ignore", report: upgradeReport{to: "1.3.0", artifactIgnore: &upgradeFileAction{path: "../x"}},
 			want: "unsafe project path"},
-		{name: "unsafe update path", report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: "../x", status: "update"}}},
+		{name: "unsafe update path", report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: "../x", status: "update"}}},
 			want: "unsafe project path"},
-		{name: "update target missing", report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{update("old")}},
+		{name: "update target missing", report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{update("old")}},
 			want: "changed while upgrade was being applied"},
 		{name: "update target unreadable", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
 			failReadFor(t, "server.go")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{update("old")}}, want: "read pkg/runtime/server.go before update"},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{update("old")}}, want: "read pkg/runtime/server.go before update"},
 		{name: "update target changed", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "changed")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{update("old")}}, want: "changed after the upgrade plan"},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{update("old")}}, want: "changed after the upgrade plan"},
 		{name: "update backup failure", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
 			writeUpgradeTestFile(t, root, ".fgoths/upgrade-backups", "")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{update("old")}}, want: "back up pkg/runtime/server.go"},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{update("old")}}, want: "back up pkg/runtime/server.go"},
 		{name: "update write failure", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
 			replaceHook(t, &renameProjectFile, func(string, string) error { return errInjected })
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{update("old")}}, want: "write updated pkg/runtime/server.go"},
-		{name: "unsafe conflict path", report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: "../x", status: "conflict"}}},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{update("old")}}, want: "write updated pkg/runtime/server.go"},
+		{name: "unsafe conflict path", report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: "../x", status: "conflict"}}},
 			want: "unsafe project path"},
-		{name: "conflict original missing", report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: relPath, status: "conflict"}}},
+		{name: "conflict original missing", report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: relPath, status: "conflict"}}},
 			want: "before saving merge candidate"},
 		{name: "conflict original changed", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "changed")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old")}}},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old")}}},
 			want: "changed after the upgrade plan"},
 		{name: "unsafe conflict candidate", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflictTo: "../x"}}},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflictTo: "../x"}}},
 			want: "save merge candidate"},
 		{name: "different conflict candidate exists", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
 			writeUpgradeTestFile(t, root, "candidate.merge", "other")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflict: []byte("merge"), conflictTo: "candidate.merge"}}},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflict: []byte("merge"), conflictTo: "candidate.merge"}}},
 			want: "save merge candidate"},
 		{name: "unreadable conflict candidate", setup: func(t *testing.T, root string) {
 			writeUpgradeTestFile(t, root, relPath, "old")
 			mkdirUpgradeTestDir(t, root, "candidate.merge")
-		}, report: upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflict: []byte("merge"), conflictTo: "candidate.merge"}}},
+		}, report: upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{path: relPath, status: "conflict", original: []byte("old"), conflict: []byte("merge"), conflictTo: "candidate.merge"}}},
 			want: "save merge candidate"},
 	}
 	for _, tc := range cases {
@@ -396,7 +396,7 @@ func TestApplyRuntimeUpgradeAcceptsExistingIdenticalCandidate(t *testing.T) {
 	root := t.TempDir()
 	writeUpgradeTestFile(t, root, "pkg/runtime/server.go", "old")
 	writeUpgradeTestFile(t, root, "candidate.merge", "merge")
-	report := upgradeReport{to: "1.2.0", actions: []upgradeFileAction{{
+	report := upgradeReport{to: "1.3.0", actions: []upgradeFileAction{{
 		path: "pkg/runtime/server.go", status: "conflict", original: []byte("old"), conflict: []byte("merge"), conflictTo: "candidate.merge",
 	}}}
 	var conflicts int
@@ -443,7 +443,7 @@ func TestApplyRuntimeUpgradeMetadataErrors(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			root := t.TempDir()
 			tc.setup(t, root)
-			_, err := applyRuntimeUpgrade(root, upgradeReport{to: "1.2.0"})
+			_, err := applyRuntimeUpgrade(root, upgradeReport{to: "1.3.0"})
 			wantErrContains(t, err, tc.want)
 		})
 	}
@@ -452,24 +452,24 @@ func TestApplyRuntimeUpgradeMetadataErrors(t *testing.T) {
 func TestApplyRuntimeUpgradeInitializesMissingRuntimeHashes(t *testing.T) {
 	root := t.TempDir()
 	writeUpgradeTestFile(t, root, ".fgoths/upgrade.json", `{"framework_version":"1.1.0","runtime_files":null}`)
-	if _, err := applyRuntimeUpgrade(root, upgradeReport{to: "1.2.0"}); err != nil {
+	if _, err := applyRuntimeUpgrade(root, upgradeReport{to: "1.3.0"}); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `"framework_version": "1.2.0"`) || !strings.Contains(string(data), `"runtime_files": {}`) {
+	if !strings.Contains(string(data), `"framework_version": "1.3.0"`) || !strings.Contains(string(data), `"runtime_files": {}`) {
 		t.Fatalf("metadata = %s", data)
 	}
 }
 
 func TestPrintUpgradeReportVariants(t *testing.T) {
-	empty := captureStdout(t, func() { printUpgradeReport(upgradeReport{from: "1.1.0", to: "1.2.0"}, false) })
+	empty := captureStdout(t, func() { printUpgradeReport(upgradeReport{from: "1.1.0", to: "1.3.0"}, false) })
 	if !strings.Contains(empty, "No runtime source changes") {
 		t.Fatalf("empty report = %q", empty)
 	}
-	report := upgradeReport{from: "1.1.0", to: "1.2.0", actions: []upgradeFileAction{
+	report := upgradeReport{from: "1.1.0", to: "1.3.0", actions: []upgradeFileAction{
 		{path: "a.go", status: "conflict", conflictTo: "a.go.merge"},
 		{path: "b.go", status: "current"},
 		{path: "c.go", status: "update"},
