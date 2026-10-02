@@ -18,6 +18,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate code
+        run: go run ./cmd/assetmanifest{{if .IsMVC}} && go tool templ generate{{end}}
       - name: Check formatting
         run: |
           unformatted=$(gofmt -l .)
@@ -38,6 +40,8 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate code
+        run: go run ./cmd/assetmanifest{{if .IsMVC}} && go tool templ generate{{end}}
       - name: Test with race detector
         run: go test -race -coverprofile=coverage.out ./...
       - name: Upload coverage
@@ -58,8 +62,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      - name: Generate code
+        run: go run ./cmd/assetmanifest{{if .IsMVC}} && go tool templ generate{{end}}
       - name: Build static binary
-        run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/app ./cmd/app
+        run: CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o bin/app .
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:

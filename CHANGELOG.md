@@ -6,6 +6,20 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+### Changed
+- The `ci-cd` release workflow builds Linux (amd64, arm64) by default from a
+  single `PLATFORMS` list (Windows targets get `.exe`) and publishes
+  `SHA256SUMS` next to the binaries and SBOM.
+- The generated GitLab pipeline uses one Go image (`GO_VERSION`, matching
+  `go.mod`) for every job.
+- Generated project and contributor docs point to official install guides
+  instead of OS-specific commands.
+
+### Fixed
+- `ci-cd` pipelines built `./cmd/app`, which generated projects do not have,
+  and skipped code generation; they now run `assetmanifest` (and `templ` for
+  webapp) and build the root package.
+
 ## [1.4.0] - 2026-10-01
 
 ### Added

@@ -581,8 +581,22 @@ func TestGenerateCreatesCICDFeature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(release), "dist/ci-cd-api-${os}-${arch}") {
+	if !strings.Contains(string(release), "dist/ci-cd-api-${os}-${arch}${ext}") {
 		t.Error("release workflow does not use the project name for release binaries")
+	}
+	if !strings.Contains(string(release), "PLATFORMS: linux/amd64 linux/arm64\n") {
+		t.Error("release workflow should target Linux by default")
+	}
+	if !strings.Contains(string(release), "sha256sum * > SHA256SUMS") {
+		t.Error("release workflow does not publish checksums")
+	}
+
+	gitlab, err := os.ReadFile(filepath.Join(cfg.Name, ".gitlab-ci.yml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(gitlab), "image: golang:${GO_VERSION}") {
+		t.Error(".gitlab-ci.yml does not set a default Go image for every job")
 	}
 
 	// CI must run tests with the race detector.
@@ -592,6 +606,16 @@ func TestGenerateCreatesCICDFeature(t *testing.T) {
 	}
 	if !strings.Contains(string(ci), "go test -race") {
 		t.Error("ci.yml does not run tests with the race detector")
+	}
+
+	// Pipelines must generate code first and build the root main package.
+	for name, content := range map[string]string{"ci.yml": string(ci), "release.yml": string(release), ".gitlab-ci.yml": string(gitlab)} {
+		if !strings.Contains(content, "go run ./cmd/assetmanifest") {
+			t.Errorf("%s does not generate code before building", name)
+		}
+		if strings.Contains(content, "./cmd/app") {
+			t.Errorf("%s builds ./cmd/app, which generated projects do not have", name)
+		}
 	}
 }
 

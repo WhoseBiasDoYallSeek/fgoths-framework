@@ -67,7 +67,7 @@ Add any of these with `--features=a,b,c`:
 | `jwt-auth` | `RequireJWT` middleware with roles, scopes, and claims. Fails closed without a secret. | `golang-jwt/jwt/v5` |
 | `mtls` | Mutual TLS and client-identity routing (CN, SAN, SPIFFE) | — (stdlib) |
 | `otel` | OpenTelemetry tracing for the server and proxy hops | `go.opentelemetry.io/otel` |
-| `ci-cd` | GitHub Actions and GitLab CI pipelines | — |
+| `ci-cd` | GitHub Actions and GitLab CI pipelines (lint, race tests, Linux release binaries, SBOM, checksums) | — |
 
 ### Databases
 
