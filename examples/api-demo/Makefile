@@ -49,22 +49,18 @@ build: generate
 docker-check:
 	@command -v docker >/dev/null 2>&1 || { \
 		echo "❌ Docker CLI not found."; \
-		echo "   macOS: brew install --cask docker  # or: brew install colima docker && colima start"; \
-		echo "   Linux: curl -fsSL https://get.docker.com | sh"; \
+		echo "   Install: https://docs.docker.com/get-docker/"; \
 		exit 1; \
 	}
 	@docker info >/dev/null 2>&1 || { \
 		echo "❌ Docker daemon is not running or Docker socket is unavailable."; \
-		echo "   Docker Desktop: open the app and wait until it says Docker is running."; \
-		echo "   Colima: colima start"; \
-		echo "   Linux: sudo systemctl start docker"; \
+		echo "   Start the Docker daemon (or your container runtime)."; \
 		echo "   Then retry: make docker-build"; \
 		exit 1; \
 	}
 	@docker buildx version >/dev/null 2>&1 || { \
 		echo "❌ Docker BuildKit/buildx is required by this Dockerfile."; \
-		echo "   Docker Desktop: upgrade/reinstall Docker Desktop (buildx is bundled)."; \
-		echo "   Colima/Homebrew: brew install docker-buildx && mkdir -p ~/.docker/cli-plugins && ln -sf $$(brew --prefix)/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx"; \
+		echo "   Install the docker-buildx plugin: https://docs.docker.com/build/install-buildx/"; \
 		echo "   Then retry: make docker-build"; \
 		exit 1; \
 	}

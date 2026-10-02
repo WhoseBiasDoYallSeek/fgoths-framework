@@ -34,7 +34,7 @@ workload configuration unchanged.
 
 ### Recorded comparison
 
-One sustained run on Apple M4 (10 logical CPUs, macOS arm64, Go 1.27.0) used
+One sustained run in a local test environment used
 150 Vegeta workers, a 2-second warm-up, three 10-second measurements per case,
 and 100 seeded products. Each measurement used a fresh SQLite database. Both
 servers used a 10-second `ReadHeaderTimeout`, the same generated handlers and
@@ -106,23 +106,8 @@ for Go modules and build artifacts; `make docker-build` enables BuildKit for you
 
 ### Install Docker
 
-macOS:
-
-```bash
-# Option A: Docker Desktop
-brew install --cask docker
-
-# Option B: lightweight local VM
-brew install colima docker
-colima start
-```
-
-Linux:
-
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker "$USER"
-```
+Install Docker Engine (or any compatible runtime with BuildKit) for your
+platform by following the official guide: <https://docs.docker.com/get-docker/>.
 
 After installing, verify the daemon is available:
 
@@ -133,20 +118,12 @@ docker info
 
 If `make docker-build` prints an error like
 `failed to connect to the docker API at unix:///var/run/docker.sock`, the Docker
-CLI is installed but the daemon is not running. Start Docker Desktop, or run
-`colima start` if you use Colima, then retry `make docker-build`.
+CLI is installed but the daemon is not running. Start the Docker daemon (or
+your container runtime), then retry `make docker-build`.
 
 If Docker reports `BuildKit is enabled but the buildx component is missing or
-broken`, install/repair the BuildKit plugin:
-
-```bash
-# Docker Desktop: upgrade or reinstall Docker Desktop
-
-# Colima/Homebrew:
-brew install docker-buildx
-mkdir -p ~/.docker/cli-plugins
-ln -sf $(brew --prefix)/opt/docker-buildx/bin/docker-buildx ~/.docker/cli-plugins/docker-buildx
-```
+broken`, install or repair the `docker-buildx` plugin:
+<https://docs.docker.com/build/install-buildx/>.
 
 ### Build And Run
 

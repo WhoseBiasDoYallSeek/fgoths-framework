@@ -243,7 +243,7 @@ func TestGenerateIncludesScratchContainerWorkflow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read README.md: %v", err)
 	}
-	for _, want := range []string{"Docker & Scratch Containers", "make docker-build", "make docker-run", "Install Docker", "failed to connect to the docker API", "BuildKit is enabled but the buildx component is missing", "Docker named volume", "container-web-data:/data", "--user \"$(id -u):$(id -g)\"", "docker-buildx", "colima start"} {
+	for _, want := range []string{"Docker & Scratch Containers", "make docker-build", "make docker-run", "Install Docker", "failed to connect to the docker API", "BuildKit is enabled but the buildx component is missing", "Docker named volume", "container-web-data:/data", "--user \"$(id -u):$(id -g)\"", "docker-buildx", "docs.docker.com/get-docker"} {
 		if !strings.Contains(string(readme), want) {
 			t.Errorf("README.md missing %q", want)
 		}

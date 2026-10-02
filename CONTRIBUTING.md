@@ -10,8 +10,8 @@ requests, bug reports, feature proposals, and documentation improvements.
 ### Prerequisites
 * **Go** 1.26 or higher
 * **Git**
-* **golangci-lint** (optional but recommended: `brew install golangci-lint`)
-* **vegeta** (optional, for stress benchmarks: `brew install vegeta`)
+* **golangci-lint** (optional but recommended: see [install options](https://golangci-lint.run/welcome/install/))
+* **vegeta** (optional, for stress benchmarks: `go install github.com/tsenart/vegeta/v12@latest`)
 
 ### Building from Source
 ```bash

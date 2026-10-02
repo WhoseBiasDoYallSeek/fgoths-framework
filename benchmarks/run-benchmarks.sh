@@ -15,7 +15,7 @@
 #
 #   --quick  shorter durations, fewer scenarios (for CI or a fast sanity pass)
 #
-# Requirements: go 1.26+, vegeta (brew install vegeta). Optional: node (skipped if absent).
+# Requirements: go 1.26+, vegeta (go install github.com/tsenart/vegeta/v12@latest). Optional: node (skipped if absent).
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,7 +51,7 @@ require() {
   if ! command -v "$1" >/dev/null 2>&1; then
     echo "❌ '$1' is required but not installed." >&2
     case "$1" in
-      vegeta) echo "   Install: brew install vegeta  |  go install github.com/tsenart/vegeta/v12@latest" >&2 ;;
+      vegeta) echo "   Install: go install github.com/tsenart/vegeta/v12@latest" >&2 ;;
     esac
     exit 1
   fi
