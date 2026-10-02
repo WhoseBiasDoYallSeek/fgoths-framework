@@ -581,3 +581,60 @@ func TestUpgradeFromV130UpdatesRouterDispatch(t *testing.T) {
 		t.Fatal("upgrade from v1.3.0 did not install the current router")
 	}
 }
+
+func TestUpgradeFromV140PreservesLocalEditsAndRecordsVersion(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/v140\n\ngo 1.26.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	baseline, err := runtimeUpgradeBaseline("1.4.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	const edited = "pkg/runtime/server.go"
+	localServer := append([]byte("// local edit\n"), baseline[edited]...)
+	for _, relPath := range runtimeUpgradePaths {
+		content := baseline[relPath]
+		if relPath == edited {
+			content = localServer
+		}
+		path := filepath.Join(root, relPath)
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, content, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".fgoths"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".fgoths", "upgrade.json"), []byte(`{"framework_version":"1.4.0","runtime_files":{}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	captureStdout(t, func() {
+		err = RunUpgrade([]string{"--dir=" + root, "--apply"})
+	})
+	if err != nil {
+		t.Fatalf("RunUpgrade --apply error = %v", err)
+	}
+	got, err := os.ReadFile(filepath.Join(root, edited))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, localServer) {
+		t.Fatal("upgrade from v1.4.0 discarded a local runtime edit")
+	}
+	data, err := os.ReadFile(filepath.Join(root, ".fgoths", "upgrade.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var manifest upgradeManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		t.Fatal(err)
+	}
+	if manifest.Version != latestRuntimeUpgradeVersion {
+		t.Fatalf("metadata version = %q, want %s", manifest.Version, latestRuntimeUpgradeVersion)
+	}
+}

@@ -1,6 +1,6 @@
 # Framework version — single source of truth for release builds.
 # Bump this (or override via ldflags) for maintenance releases.
-VERSION ?= 1.4.0
+VERSION ?= 1.4.1
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo unknown)
 DATE    ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
 

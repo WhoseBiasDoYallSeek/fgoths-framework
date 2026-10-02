@@ -42,7 +42,7 @@ If you pass a version FGOTHS doesn't know, it stops instead of guessing.
 ## Reading the preview
 
 ```
-FGOTHS runtime upgrade plan: v1.2.0 -> v1.4.0
+FGOTHS runtime upgrade plan: v1.2.0 -> v1.4.1
   Update pkg/runtime/server.go
   Merge local changes in pkg/runtime/proxy.go
   Conflict in pkg/runtime/metrics.go; original will be preserved

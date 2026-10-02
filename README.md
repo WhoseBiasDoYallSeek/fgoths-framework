@@ -2,7 +2,7 @@
 
 **The auditable foundation for resilient Go services.**
 
-`v1.4.0` · Apache 2.0 · Go 1.26+
+`v1.4.1` · Apache 2.0 · Go 1.26+
 
 FGOTHS generates Go services, JSON APIs or server-rendered web apps, that you
 own line by line and can still upgrade. Each one ships as a single static
@@ -62,7 +62,7 @@ your edits.
 
 ```text
 $ fgoths upgrade --dir=orders
-FGOTHS runtime upgrade plan: v1.3.0 -> v1.4.0
+FGOTHS runtime upgrade plan: v1.3.0 -> v1.4.1
   Current pkg/runtime/server.go
   Merge local changes in pkg/runtime/router.go
   Current pkg/runtime/proxy.go

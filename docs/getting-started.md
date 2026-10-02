@@ -13,7 +13,7 @@ for container images.
 
 ```bash
 go install github.com/WhoseBiasDoYallSeek/fgoths-framework/cmd/fgoths@latest
-fgoths version              # version: 1.4.0
+fgoths version              # version: 1.4.1
 ```
 
 This puts `fgoths` in `$(go env GOPATH)/bin`, so make sure that folder is on

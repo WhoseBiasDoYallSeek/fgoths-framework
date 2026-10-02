@@ -6,6 +6,12 @@ follows [Semantic Versioning](https://semver.org).
 
 ## [Unreleased]
 
+## [1.4.1] - 2026-10-01
+
+### Added
+- `fgoths upgrade` accepts projects created with v1.4.0. The runtime itself
+  is unchanged in this release.
+
 ### Changed
 - The `ci-cd` release workflow builds Linux (amd64, arm64) by default from a
   single `PLATFORMS` list (Windows targets get `.exe`) and publishes
@@ -255,7 +261,8 @@ reproducible benchmarks. The generated-project test matrix is not exhaustive.
 - Multi-tenancy quotas exist but are not validated under real multi-tenant
   production load.
 
-[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/WhoseBiasDoYallSeek/fgoths-framework/compare/v1.1.0...v1.2.0
