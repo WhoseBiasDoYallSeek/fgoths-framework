@@ -2,6 +2,7 @@
 
 **The auditable foundation for resilient Go services.**
 
+<sub>*For The GOTH Stack*</sub><br>
 <sub>**F**latBuffers · **G**o · **O**rchestration · **T**empl · **H**TMX · **S**QL & scratch containers</sub>
 
 `v1.4.1` · Apache 2.0 · Go 1.26+
